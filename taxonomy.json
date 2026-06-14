@@ -1,0 +1,778 @@
+[
+  {
+    "name": "Business",
+    "slug": "business",
+    "color": "#D97706",
+    "icon": "🚀",
+    "description": "Startups, Branding, Strategy, E-commerce",
+    "subcategories": [
+      {
+        "name": "Entrepreneurship",
+        "slug": "entrepreneurship",
+        "level3": [
+          {
+            "name": "Women Founders",
+            "slug": "women-founders"
+          },
+          {
+            "name": "Startup Growth",
+            "slug": "startup-growth"
+          },
+          {
+            "name": "First-Time Founders",
+            "slug": "first-time-founders"
+          },
+          {
+            "name": "Scaling Businesses",
+            "slug": "scaling-businesses"
+          }
+        ]
+      },
+      {
+        "name": "Startups",
+        "slug": "startups",
+        "level3": []
+      },
+      {
+        "name": "Small Business",
+        "slug": "small-business",
+        "level3": []
+      },
+      {
+        "name": "Leadership",
+        "slug": "leadership",
+        "level3": []
+      },
+      {
+        "name": "Operations",
+        "slug": "operations",
+        "level3": []
+      },
+      {
+        "name": "Marketing",
+        "slug": "marketing",
+        "level3": [
+          {
+            "name": "Social Media Marketing",
+            "slug": "social-media-marketing"
+          },
+          {
+            "name": "SEO",
+            "slug": "seo"
+          },
+          {
+            "name": "Content Marketing",
+            "slug": "content-marketing"
+          },
+          {
+            "name": "Brand Strategy",
+            "slug": "brand-strategy"
+          }
+        ]
+      },
+      {
+        "name": "Sales",
+        "slug": "sales",
+        "level3": [
+          {
+            "name": "B2B Sales",
+            "slug": "b2b-sales"
+          },
+          {
+            "name": "Client Acquisition",
+            "slug": "client-acquisition"
+          },
+          {
+            "name": "Negotiation",
+            "slug": "negotiation"
+          },
+          {
+            "name": "High-Ticket Sales",
+            "slug": "high-ticket-sales"
+          }
+        ]
+      },
+      {
+        "name": "E-commerce",
+        "slug": "e-commerce",
+        "level3": []
+      },
+      {
+        "name": "Branding",
+        "slug": "branding",
+        "level3": []
+      },
+      {
+        "name": "Freelancing",
+        "slug": "freelancing",
+        "level3": []
+      },
+      {
+        "name": "Consulting",
+        "slug": "consulting",
+        "level3": []
+      },
+      {
+        "name": "Management",
+        "slug": "management",
+        "level3": []
+      }
+    ]
+  },
+  {
+    "name": "Technology",
+    "slug": "technology",
+    "color": "#0D9488",
+    "icon": "🔬",
+    "description": "Science, Technology, Software, AI",
+    "subcategories": [
+      {
+        "name": "Software Engineering",
+        "slug": "software-engineering",
+        "level3": [
+          {
+            "name": "Frontend",
+            "slug": "frontend"
+          },
+          {
+            "name": "Backend",
+            "slug": "backend"
+          },
+          {
+            "name": "Full Stack",
+            "slug": "full-stack"
+          },
+          {
+            "name": "DevOps",
+            "slug": "devops"
+          }
+        ]
+      },
+      {
+        "name": "AI & Machine Learning",
+        "slug": "ai-and-machine-learning",
+        "level3": [
+          {
+            "name": "Prompt Engineering",
+            "slug": "prompt-engineering"
+          },
+          {
+            "name": "AI Tools",
+            "slug": "ai-tools"
+          },
+          {
+            "name": "Automation",
+            "slug": "automation"
+          },
+          {
+            "name": "AI Ethics",
+            "slug": "ai-ethics"
+          }
+        ]
+      },
+      {
+        "name": "Data Science",
+        "slug": "data-science",
+        "level3": []
+      },
+      {
+        "name": "Cybersecurity",
+        "slug": "cybersecurity",
+        "level3": []
+      },
+      {
+        "name": "UX/UI Design",
+        "slug": "ux-ui-design",
+        "level3": []
+      },
+      {
+        "name": "Product Management",
+        "slug": "product-management",
+        "level3": []
+      },
+      {
+        "name": "Cloud Computing",
+        "slug": "cloud-computing",
+        "level3": []
+      },
+      {
+        "name": "Web Development",
+        "slug": "web-development",
+        "level3": []
+      },
+      {
+        "name": "Mobile Development",
+        "slug": "mobile-development",
+        "level3": []
+      },
+      {
+        "name": "Blockchain",
+        "slug": "blockchain",
+        "level3": []
+      },
+      {
+        "name": "Gaming",
+        "slug": "gaming",
+        "level3": []
+      },
+      {
+        "name": "Tech Startups",
+        "slug": "tech-startups",
+        "level3": []
+      }
+    ]
+  },
+  {
+    "name": "Healthcare",
+    "slug": "healthcare",
+    "color": "#059669",
+    "icon": "🏥",
+    "description": "Medicine, Nursing, Mental Health",
+    "subcategories": [
+      {
+        "name": "Nursing",
+        "slug": "nursing",
+        "level3": []
+      },
+      {
+        "name": "Medicine",
+        "slug": "medicine",
+        "level3": []
+      },
+      {
+        "name": "Mental Health",
+        "slug": "mental-health",
+        "level3": [
+          {
+            "name": "Burnout",
+            "slug": "burnout"
+          },
+          {
+            "name": "Anxiety",
+            "slug": "anxiety"
+          },
+          {
+            "name": "Therapy Careers",
+            "slug": "therapy-careers"
+          },
+          {
+            "name": "Emotional Resilience",
+            "slug": "emotional-resilience"
+          }
+        ]
+      },
+      {
+        "name": "Public Health",
+        "slug": "public-health",
+        "level3": []
+      },
+      {
+        "name": "Physical Therapy",
+        "slug": "physical-therapy",
+        "level3": []
+      },
+      {
+        "name": "Nutrition",
+        "slug": "nutrition",
+        "level3": []
+      },
+      {
+        "name": "Fitness",
+        "slug": "fitness",
+        "level3": []
+      },
+      {
+        "name": "Healthcare Administration",
+        "slug": "healthcare-administration",
+        "level3": []
+      },
+      {
+        "name": "Alternative Medicine",
+        "slug": "alternative-medicine",
+        "level3": []
+      },
+      {
+        "name": "Women’s Health",
+        "slug": "womens-health",
+        "level3": []
+      }
+    ]
+  },
+  {
+    "name": "Finance",
+    "slug": "finance",
+    "color": "#0284C7",
+    "icon": "💰",
+    "description": "Personal Finance, Fintech, Investment",
+    "subcategories": [
+      {
+        "name": "Personal Finance",
+        "slug": "personal-finance",
+        "level3": [
+          {
+            "name": "Budgeting",
+            "slug": "budgeting"
+          },
+          {
+            "name": "Saving",
+            "slug": "saving"
+          },
+          {
+            "name": "Debt Management",
+            "slug": "debt-management"
+          },
+          {
+            "name": "Financial Independence",
+            "slug": "financial-independence"
+          }
+        ]
+      },
+      {
+        "name": "Investment Banking",
+        "slug": "investment-banking",
+        "level3": []
+      },
+      {
+        "name": "Accounting & Operation",
+        "slug": "accounting-and-operation",
+        "level3": []
+      },
+      {
+        "name": "Wealth Management & Financial Planning",
+        "slug": "wealth-management-and-financial-planning",
+        "level3": []
+      },
+      {
+        "name": "Structuring, financing,Portfolio Management",
+        "slug": "structuring-financingportfolio-management",
+        "level3": []
+      },
+      {
+        "name": "Real Estate Finance",
+        "slug": "real-estate-finance",
+        "level3": []
+      },
+      {
+        "name": "Cryptocurrency",
+        "slug": "cryptocurrency",
+        "level3": []
+      },
+      {
+        "name": "FinTech",
+        "slug": "fintech",
+        "level3": []
+      },
+      {
+        "name": "Venture Capital",
+        "slug": "venture-capital",
+        "level3": []
+      },
+      {
+        "name": "Investor relations/Sales/Product Specalists//Relationship Management",
+        "slug": "investor-relations-sales-product-specalists-relationship-management",
+        "level3": []
+      },
+      {
+        "name": "Corporate Finance",
+        "slug": "corporate-finance",
+        "level3": []
+      }
+    ]
+  },
+  {
+    "name": "Law",
+    "slug": "law",
+    "color": "#6366F1",
+    "icon": "⚖️",
+    "description": "Corporate, Human Rights, Policy",
+    "subcategories": [
+      {
+        "name": "Corporate Law",
+        "slug": "corporate-law",
+        "level3": [
+          {
+            "name": "Contracts",
+            "slug": "contracts"
+          },
+          {
+            "name": "Mergers",
+            "slug": "mergers"
+          },
+          {
+            "name": "Startups",
+            "slug": "startups"
+          },
+          {
+            "name": "Legal Operations",
+            "slug": "legal-operations"
+          }
+        ]
+      },
+      {
+        "name": "Criminal Law",
+        "slug": "criminal-law",
+        "level3": []
+      },
+      {
+        "name": "Family Law",
+        "slug": "family-law",
+        "level3": []
+      },
+      {
+        "name": "Immigration Law",
+        "slug": "immigration-law",
+        "level3": []
+      },
+      {
+        "name": "Intellectual Property",
+        "slug": "intellectual-property",
+        "level3": []
+      },
+      {
+        "name": "Human Rights",
+        "slug": "human-rights",
+        "level3": []
+      },
+      {
+        "name": "Legal Tech",
+        "slug": "legal-tech",
+        "level3": []
+      },
+      {
+        "name": "Compliance",
+        "slug": "compliance",
+        "level3": []
+      },
+      {
+        "name": "Government Policy",
+        "slug": "government-policy",
+        "level3": []
+      }
+    ]
+  },
+  {
+    "name": "Social Impact & Community",
+    "slug": "social-impact-and-community",
+    "color": "#8B5CF6",
+    "icon": "🌟",
+    "description": "Nonprofits, Education, Leadership",
+    "subcategories": [
+      {
+        "name": "Nonprofits",
+        "slug": "nonprofits",
+        "level3": []
+      },
+      {
+        "name": "Social Work",
+        "slug": "social-work",
+        "level3": []
+      },
+      {
+        "name": "Education",
+        "slug": "education",
+        "level3": [
+          {
+            "name": "Student Mentorship",
+            "slug": "student-mentorship"
+          },
+          {
+            "name": "Curriculum Design",
+            "slug": "curriculum-design"
+          },
+          {
+            "name": "EdTech",
+            "slug": "edtech"
+          },
+          {
+            "name": "Teaching Careers",
+            "slug": "teaching-careers"
+          }
+        ]
+      },
+      {
+        "name": "Advocacy",
+        "slug": "advocacy",
+        "level3": []
+      },
+      {
+        "name": "Community Leadership",
+        "slug": "community-leadership",
+        "level3": []
+      },
+      {
+        "name": "DEI",
+        "slug": "dei",
+        "level3": []
+      },
+      {
+        "name": "Humanitarian Work",
+        "slug": "humanitarian-work",
+        "level3": []
+      },
+      {
+        "name": "Youth Development",
+        "slug": "youth-development",
+        "level3": []
+      },
+      {
+        "name": "Public Service",
+        "slug": "public-service",
+        "level3": []
+      }
+    ]
+  },
+  {
+    "name": "Creative & Media",
+    "slug": "creative-and-media",
+    "color": "#EA580C",
+    "icon": "🎨",
+    "description": "Design, Film, Music, Content Creation",
+    "subcategories": [
+      {
+        "name": "Content Creation",
+        "slug": "content-creation",
+        "level3": [
+          {
+            "name": "YouTube Growth",
+            "slug": "youtube-growth"
+          },
+          {
+            "name": "TikTok",
+            "slug": "tiktok"
+          },
+          {
+            "name": "Instagram Growth",
+            "slug": "instagram-growth"
+          },
+          {
+            "name": "Monetization",
+            "slug": "monetization"
+          }
+        ]
+      },
+      {
+        "name": "Podcasting",
+        "slug": "podcasting",
+        "level3": []
+      },
+      {
+        "name": "Film & TV",
+        "slug": "film-and-tv",
+        "level3": []
+      },
+      {
+        "name": "Photography",
+        "slug": "photography",
+        "level3": []
+      },
+      {
+        "name": "Music",
+        "slug": "music",
+        "level3": []
+      },
+      {
+        "name": "Writing",
+        "slug": "writing",
+        "level3": []
+      },
+      {
+        "name": "Graphic Design",
+        "slug": "graphic-design",
+        "level3": []
+      },
+      {
+        "name": "Fashion",
+        "slug": "fashion",
+        "level3": []
+      },
+      {
+        "name": "Influencer Careers",
+        "slug": "influencer-careers",
+        "level3": []
+      },
+      {
+        "name": "Digital Media",
+        "slug": "digital-media",
+        "level3": []
+      }
+    ]
+  },
+  {
+    "name": "Education & Academia",
+    "slug": "education-and-academia",
+    "color": "#7C3AED",
+    "icon": "📚",
+    "description": "Teaching, Research, EdTech",
+    "subcategories": [
+      {
+        "name": "Teaching",
+        "slug": "teaching",
+        "level3": []
+      },
+      {
+        "name": "Research",
+        "slug": "research",
+        "level3": [
+          {
+            "name": "Academic Publishing",
+            "slug": "academic-publishing"
+          },
+          {
+            "name": "Grant Funding",
+            "slug": "grant-funding"
+          },
+          {
+            "name": "PhD Journeys",
+            "slug": "phd-journeys"
+          },
+          {
+            "name": "Scientific Careers",
+            "slug": "scientific-careers"
+          }
+        ]
+      },
+      {
+        "name": "Higher Education",
+        "slug": "higher-education",
+        "level3": []
+      },
+      {
+        "name": "Academic Leadership",
+        "slug": "academic-leadership",
+        "level3": []
+      },
+      {
+        "name": "Online Learning",
+        "slug": "online-learning",
+        "level3": []
+      },
+      {
+        "name": "EdTech",
+        "slug": "edtech",
+        "level3": []
+      }
+    ]
+  },
+  {
+    "name": "Government & Public Sector",
+    "slug": "government-and-public-sector",
+    "color": "#1E3A8A",
+    "icon": "🏛️",
+    "description": "Politics, Public Policy, Policy",
+    "subcategories": [
+      {
+        "name": "Public Administration",
+        "slug": "public-administration",
+        "level3": []
+      },
+      {
+        "name": "Politics",
+        "slug": "politics",
+        "level3": []
+      },
+      {
+        "name": "International Relations",
+        "slug": "international-relations",
+        "level3": []
+      },
+      {
+        "name": "Urban Planning",
+        "slug": "urban-planning",
+        "level3": []
+      },
+      {
+        "name": "Public Policy",
+        "slug": "public-policy",
+        "level3": [
+          {
+            "name": "Healthcare Policy",
+            "slug": "healthcare-policy"
+          },
+          {
+            "name": "Education Reform",
+            "slug": "education-reform"
+          },
+          {
+            "name": "Economic Policy",
+            "slug": "economic-policy"
+          },
+          {
+            "name": "Women in Politics",
+            "slug": "women-in-politics"
+          }
+        ]
+      },
+      {
+        "name": "Military",
+        "slug": "military",
+        "level3": []
+      },
+      {
+        "name": "Law Enforcement",
+        "slug": "law-enforcement",
+        "level3": []
+      }
+    ]
+  },
+  {
+    "name": "Lifestyle Careers",
+    "slug": "lifestyle-careers",
+    "color": "#DB2777",
+    "icon": "🌸",
+    "description": "Remote Work, Work-Life Balance, Pivot",
+    "subcategories": [
+      {
+        "name": "Remote Work",
+        "slug": "remote-work",
+        "level3": []
+      },
+      {
+        "name": "Digital Nomad",
+        "slug": "digital-nomad",
+        "level3": []
+      },
+      {
+        "name": "Work-Life Balance",
+        "slug": "work-life-balance",
+        "level3": []
+      },
+      {
+        "name": "Productivity",
+        "slug": "productivity",
+        "level3": []
+      },
+      {
+        "name": "Career Change",
+        "slug": "career-change",
+        "level3": [
+          {
+            "name": "Industry Transition",
+            "slug": "industry-transition"
+          },
+          {
+            "name": "Late Career Pivot",
+            "slug": "late-career-pivot"
+          },
+          {
+            "name": "Returning to Work",
+            "slug": "returning-to-work"
+          },
+          {
+            "name": "Reinvention",
+            "slug": "reinvention"
+          }
+        ]
+      },
+      {
+        "name": "Motherhood & Career",
+        "slug": "motherhood-and-career",
+        "level3": []
+      },
+      {
+        "name": "Gen Z Careers",
+        "slug": "gen-z-careers",
+        "level3": []
+      }
+    ]
+  }
+]
