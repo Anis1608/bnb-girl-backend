@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const morgan = require('morgan');
 
 // Load environment config
 dotenv.config();
@@ -35,6 +36,7 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // Middlewares
+app.use(morgan('dev'));
 app.use(cors());
 app.use(express.json());
 // Serve uploads folder as static files
