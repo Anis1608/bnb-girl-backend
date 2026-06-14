@@ -458,6 +458,21 @@ app.post('/api/mentorship', (req, res) => submitForm('mentorship', req, res));
 app.post('/api/guest-apply', (req, res) => submitForm('guest_apply', req, res));
 app.post('/api/mentor-apply', (req, res) => submitForm('mentor_apply', req, res));
 
+// GET /api/cms - Public CMS content endpoint
+app.get('/api/cms', async (req, res) => {
+  try {
+    const dbOptions = await Option.find({ key: /^cms_/ });
+    const cms = {};
+    dbOptions.forEach(opt => {
+      cms[opt.key] = opt.value;
+    });
+    res.json(cms);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error fetching CMS content' });
+  }
+});
+
 /* ====================================================================
    ADMIN AUTH ENDPOINTS
    ==================================================================== */
@@ -981,6 +996,38 @@ app.put('/api/admin/settings', auth, async (req, res) => {
     await Option.findOneAndUpdate({ key: 'bbg_quiz_gate' }, { value: bbg_quiz_gate ? '1' : '0' }, { upsert: true });
     
     res.json({ success: true, message: 'Settings saved' });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// CMS OPTIONS API
+app.get('/api/admin/cms', auth, async (req, res) => {
+  try {
+    const dbOptions = await Option.find({ key: /^cms_/ });
+    const cms = {};
+    dbOptions.forEach(opt => {
+      cms[opt.key] = opt.value;
+    });
+    res.json(cms);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.put('/api/admin/cms', auth, async (req, res) => {
+  try {
+    const cmsData = req.body;
+    for (const [k, v] of Object.entries(cmsData)) {
+      if (k.startsWith('cms_')) {
+        await Option.findOneAndUpdate(
+          { key: k },
+          { value: String(v) },
+          { upsert: true, new: true }
+        );
+      }
+    }
+    res.json({ success: true, message: 'CMS updated successfully' });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
