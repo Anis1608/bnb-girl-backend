@@ -933,6 +933,101 @@ app.get('/api/admin/submissions/export', auth, async (req, res) => {
   }
 });
 
+// DASHBOARD STATS API
+app.get('/api/admin/dashboard-stats', auth, async (req, res) => {
+  try {
+    const totalEpisodes = await Episode.countDocuments({});
+    const publishedEpisodes = await Episode.countDocuments({ status: 'published' });
+    const draftEpisodes = await Episode.countDocuments({ status: 'draft' });
+
+    // Mentors count (Consolidated - Episode-based mentors + Dedicated mentors)
+    const epMentorsCount = await Episode.countDocuments({ is_mentor: true, status: 'published' });
+    const dedicatedCount = await Mentor.countDocuments({ status: 'published' });
+    const totalMentors = epMentorsCount + dedicatedCount;
+
+    const totalResources = await Resource.countDocuments({});
+    const publishedResources = await Resource.countDocuments({ status: 'published' });
+    const draftResources = await Resource.countDocuments({ status: 'draft' });
+
+    const totalSubmissions = await Submission.countDocuments({});
+    
+    // Status breakdown
+    const submissionsByStatus = {
+      new: await Submission.countDocuments({ status: 'new' }),
+      reviewed: await Submission.countDocuments({ status: 'reviewed' }),
+      actioned: await Submission.countDocuments({ status: 'actioned' }),
+      spam: await Submission.countDocuments({ status: 'spam' })
+    };
+
+    // Form Type breakdown
+    const forms = ['ask_guest', 'suggest_guest', 'community', 'quiz', 'mentorship', 'guest_apply', 'mentor_apply'];
+    const submissionsByFormType = {};
+    for (const f of forms) {
+      submissionsByFormType[f] = await Submission.countDocuments({ form_type: f });
+    }
+
+    // Categories breakdown
+    const categories = await Category.find().lean();
+    const categoriesBreakdown = [];
+    for (const cat of categories) {
+      const epCount = await Episode.countDocuments({ category_id: cat._id });
+      const resCount = await Resource.countDocuments({ category_id: cat._id });
+      const mentorCount = await Mentor.countDocuments({ category_id: cat._id });
+      categoriesBreakdown.push({
+        id: cat._id,
+        name: cat.name,
+        color: cat.color,
+        icon: cat.icon,
+        episodes: epCount,
+        resources: resCount,
+        mentors: mentorCount
+      });
+    }
+
+    // Submissions over time (last 7 days)
+    const last7Days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+      const start = d;
+      const end = new Date(d);
+      end.setDate(end.getDate() + 1);
+
+      const count = await Submission.countDocuments({
+        created_at: { $gte: start, $lt: end }
+      });
+      
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+      last7Days.push({ day: dayName, date: d.toISOString().slice(0, 10), count });
+    }
+
+    // Get live stats from Options
+    const keys = ['episodes', 'mentors', 'community', 'downloads', 'countries', 'response', 'industries', 'views', 'views_unit'];
+    const dbOptions = await Option.find({ key: { $in: keys.map(k => `bbg_stat_${k}`) } });
+    const liveStats = {};
+    keys.forEach(k => {
+      liveStats[k] = k === 'views_unit' ? 'M+' : '0';
+    });
+    dbOptions.forEach(opt => {
+      const keyName = opt.key.replace('bbg_stat_', '');
+      liveStats[keyName] = opt.value;
+    });
+
+    res.json({
+      episodes: { total: totalEpisodes, published: publishedEpisodes, draft: draftEpisodes },
+      mentors: { total: totalMentors, epMentors: epMentorsCount, dedicated: dedicatedCount },
+      resources: { total: totalResources, published: publishedResources, draft: draftResources },
+      submissions: { total: totalSubmissions, byStatus: submissionsByStatus, byFormType: submissionsByFormType, last7Days },
+      categories: categoriesBreakdown,
+      liveStats
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error fetching dashboard stats' });
+  }
+});
+
 // STATS OPTIONS API
 app.get('/api/admin/stats', auth, async (req, res) => {
   try {
@@ -1034,7 +1129,7 @@ app.put('/api/admin/cms', auth, async (req, res) => {
 });
 
 const cmsDefaults = {
-  cms_navbar_logo: "https://bnbgirl.com/wp-content/uploads/2026/03/logo-BjMcg-i3__2___1_-removebg-preview.png",
+  cms_navbar_logo: "/logo-main.png",
   cms_footer_tagline: "Real Stories. Real Women. Real Possibilities. Empowering the next generation of female leaders through authentic conversations and meaningful mentorship.",
   cms_footer_social_insta: "https://instagram.com/bnbgirls.podcast",
   cms_footer_social_yt: "https://www.youtube.com/@BoldandBrilliantgirl",
