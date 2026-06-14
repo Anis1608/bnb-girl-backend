@@ -56,6 +56,11 @@ const upload = multer({ storage: storage });
    PUBLIC API ENDPOINTS
    ==================================================================== */
 
+// Health Check Endpoint (for self-pings and keep-awake)
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date() });
+});
+
 // 1. GET /api/stats - Site numbers
 app.get('/api/stats', async (req, res) => {
   try {
@@ -1198,6 +1203,24 @@ const seedCmsDefaults = async () => {
    DATABASE CONNECTION & SERVER LISTEN
    ==================================================================== */
 
+// Keep-alive self-pinging to prevent Render server sleep
+function startSelfPing() {
+  const https = require('https');
+  const SELF_PING_INTERVAL = 5 * 60 * 1000; // 5 minutes
+  const HOST_URL = process.env.RENDER_EXTERNAL_URL || 'https://bnb-girl-backend.onrender.com';
+  const PING_URL = `${HOST_URL}/api/health`;
+
+  console.log(`[Self-Ping] Initialized keep-alive job. URL: ${PING_URL}, Interval: 5 mins`);
+  
+  setInterval(() => {
+    https.get(PING_URL, (res) => {
+      console.log(`[Self-Ping] Sent GET request to Keep-Alive. Status Code: ${res.statusCode}`);
+    }).on('error', (err) => {
+      console.error(`[Self-Ping] Error sending request:`, err.message);
+    });
+  }, SELF_PING_INTERVAL);
+}
+
 console.log('Connecting to MongoDB database...');
 mongoose.connect(MONGODB_URI)
   .then(() => {
@@ -1206,6 +1229,7 @@ mongoose.connect(MONGODB_URI)
     app.listen(PORT, () => {
       console.log(`BBG Backend Server running on port ${PORT}`);
       console.log(`API root available at: http://localhost:${PORT}/api`);
+      startSelfPing();
     });
   })
   .catch(err => {
