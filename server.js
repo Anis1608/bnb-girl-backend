@@ -416,10 +416,28 @@ app.get('/api/resources', async (req, res) => {
   }
 });
 
+// Recursive sanitizer to strip HTML/Script tags and prevent XSS injection
+const sanitizeInput = (val) => {
+  if (typeof val === 'string') {
+    return val.replace(/<[^>]*>/g, '');
+  }
+  if (Array.isArray(val)) {
+    return val.map(sanitizeInput);
+  }
+  if (val && typeof val === 'object') {
+    const cleaned = {};
+    for (const key in val) {
+      cleaned[key] = sanitizeInput(val[key]);
+    }
+    return cleaned;
+  }
+  return val;
+};
+
 // 8. POST /api/forms - Submission receiver mapping
 const submitForm = async (formType, req, res) => {
   try {
-    const data = req.body;
+    const data = sanitizeInput(req.body || {});
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
     // Basic Validation depending on form type
