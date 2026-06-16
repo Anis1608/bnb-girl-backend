@@ -801,6 +801,86 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// POST /api/auth/firebase - Verify Firebase ID token and sync user profile
+app.post('/api/auth/firebase', async (req, res) => {
+  try {
+    const { idToken, name, email } = req.body;
+    if (!idToken) {
+      return res.status(400).json({ success: false, message: 'ID token is required' });
+    }
+
+    let verifiedEmail = email;
+    let verifiedName = name || '';
+    let firebaseUid = '';
+
+    // Handle developer / mock token bypass
+    if (idToken === 'mock_firebase_token') {
+      console.warn('Handling login in MOCK/DEVELOPER Firebase mode');
+      if (!verifiedEmail) {
+        return res.status(400).json({ success: false, message: 'Email required for mock firebase login' });
+      }
+      firebaseUid = `mock_uid_${verifiedEmail.replace(/[^a-zA-Z0-9]/g, '')}`;
+    } else {
+      // Securely verify ID token using Google Identity Toolkit API
+      const apiKey = process.env.FIREBASE_API_KEY || '';
+      if (!apiKey) {
+        return res.status(500).json({ success: false, message: 'Firebase API Key is not configured on the backend.' });
+      }
+      
+      const verifyRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken })
+        }
+      );
+      
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok || !verifyData.users || verifyData.users.length === 0) {
+        return res.status(401).json({ success: false, message: 'Invalid or expired Firebase token' });
+      }
+
+      const firebaseUser = verifyData.users[0];
+      verifiedEmail = firebaseUser.email;
+      verifiedName = firebaseUser.displayName || name || '';
+      firebaseUid = firebaseUser.localId;
+    }
+
+    // Sync with MongoDB user record
+    let user = await User.findOne({ email: verifiedEmail });
+    if (!user) {
+      // Create new customer account
+      user = new User({
+        email: verifiedEmail,
+        name: verifiedName,
+        role: 'customer',
+        firebaseUid
+      });
+      await user.save();
+      console.log('Created new MERN profile for social user:', verifiedEmail);
+    } else {
+      // Update Firebase UID if missing
+      if (!user.firebaseUid) {
+        user.firebaseUid = firebaseUid;
+        await user.save();
+      }
+    }
+
+    // Sign local MERN JWT
+    const token = jwt.sign(
+      { id: user._id, name: user.name, email: user.email, role: user.role || 'customer' },
+      process.env.JWT_SECRET || 'supersecretjwtkeyforbbgplatform123!',
+      { expiresIn: '7d' }
+    );
+
+    res.json({ success: true, token, name: user.name, email: user.email });
+  } catch (err) {
+    console.error('Error verifying Firebase token:', err);
+    res.status(500).json({ success: false, message: 'Server error verifying Firebase token' });
+  }
+});
+
 // GET /api/user/bookings - Get customer bookings (synchronized by email)
 app.get('/api/user/bookings', userAuth, async (req, res) => {
   try {
