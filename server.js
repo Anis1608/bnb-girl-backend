@@ -1617,7 +1617,14 @@ const cmsDefaults = {
   cms_about_player_sub: "New episodes every week · Real stories, real paths",
   cms_about_listen_title: "Ready to start <span class=\"hot\">listening?</span>",
   cms_about_listen_body: "Each episode features a real professional sharing their path — the pivots, the surprises, and the advice they wish someone had given them. Perfect for every young woman figuring out her next step.",
-  cms_about_contact_email: "sanah@bnbgirl.com"
+  cms_about_contact_email: "sanah@bnbgirl.com",
+  // Series / Curated Collections CMS
+  cms_series_stem_title: "Women in STEM", cms_series_stem_epcount: "8 Episodes", cms_series_stem_category: "tech", cms_series_stem_youtube: "", cms_series_stem_percentage: "25%",
+  cms_series_entrepreneurship_title: "Entrepreneurship Diaries", cms_series_entrepreneurship_epcount: "6 Episodes", cms_series_entrepreneurship_category: "business", cms_series_entrepreneurship_youtube: "", cms_series_entrepreneurship_percentage: "0%",
+  cms_series_mental_title: "Mental Health & Career", cms_series_mental_epcount: "4 Episodes", cms_series_mental_category: "health", cms_series_mental_youtube: "", cms_series_mental_percentage: "50%",
+  cms_series_law_title: "Breaking Barriers in Law", cms_series_law_epcount: "5 Episodes", cms_series_law_category: "law", cms_series_law_youtube: "", cms_series_law_percentage: "0%",
+  cms_series_creative_title: "The Creative Career", cms_series_creative_epcount: "7 Episodes", cms_series_creative_category: "arts", cms_series_creative_youtube: "", cms_series_creative_percentage: "14%",
+  cms_series_finance_title: "Corporate & Finance", cms_series_finance_epcount: "5 Episodes", cms_series_finance_category: "finance", cms_series_finance_youtube: "", cms_series_finance_percentage: "0%"
 };
 
 const seedCmsDefaults = async () => {
