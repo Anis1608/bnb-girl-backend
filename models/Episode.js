@@ -26,7 +26,11 @@ const episodeSchema = new mongoose.Schema({
   mentor_linkedin: { type: String, default: '' },
   mentor_fields: { type: String, default: '' },
   status: { type: String, default: 'published' },
+  durs: { type: [String], default: ['30', '60'] },
+  slots: { type: [String], default: ["09:00", "09:30", "10:00", "11:00", "11:30", "14:00", "14:30", "15:00", "16:00", "16:30"] },
+  busy: { type: [String], default: ["11:00", "15:00"] },
   created_at: { type: Date, default: Date.now }
 });
 
 module.exports = mongoose.model('Episode', episodeSchema);
+

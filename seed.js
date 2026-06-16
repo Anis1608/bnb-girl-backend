@@ -532,7 +532,10 @@ async function seed() {
         catSlug: 'technology',
         expertise_areas: 'Career pivots, PM interviews, Negotiation',
         rate: '$20',
-        is_featured: true
+        is_featured: true,
+        durs: ['30', '60'],
+        slots: ["09:00", "09:30", "10:00", "11:00", "11:30", "14:00", "14:30", "15:00", "16:00", "16:30"],
+        busy: ["11:00", "15:00"]
       },
       {
         name: 'Vanya Mehta',
@@ -544,7 +547,10 @@ async function seed() {
         catSlug: 'finance',
         expertise_areas: 'Fundraising, Startups, Growth',
         rate: '$36',
-        is_featured: true
+        is_featured: true,
+        durs: ['60'],
+        slots: ["09:00", "09:30", "10:30", "13:00", "13:30", "16:00", "16:30", "17:00"],
+        busy: ["09:30", "16:30"]
       },
       {
         name: 'Pehal Kaur',
@@ -556,7 +562,10 @@ async function seed() {
         catSlug: 'law',
         expertise_areas: 'Contracts, Negotiation, Legal careers',
         rate: '$20',
-        is_featured: true
+        is_featured: true,
+        durs: ['30', '60'],
+        slots: ["08:30", "09:00", "09:30", "11:00", "11:30", "15:00", "15:30", "16:00", "16:30"],
+        busy: ["09:00", "15:30"]
       },
       {
         name: 'Jane Williams',
@@ -568,7 +577,10 @@ async function seed() {
         catSlug: 'business',
         expertise_areas: 'Brand strategy, Content, Positioning',
         rate: '$36',
-        is_featured: true
+        is_featured: true,
+        durs: ['60', '120'],
+        slots: ["10:00", "10:30", "11:00", "11:30", "13:00", "13:30", "15:00", "15:30"],
+        busy: ["11:30", "13:00"]
       },
       {
         name: 'Erica Thompson',
@@ -580,7 +592,10 @@ async function seed() {
         catSlug: 'healthcare',
         expertise_areas: 'Leadership, Operations, Strategy',
         rate: '$20',
-        is_featured: true
+        is_featured: true,
+        durs: ['30'],
+        slots: ["07:00", "07:30", "08:00", "08:30", "12:00", "12:30", "13:00", "13:30"],
+        busy: ["07:30", "13:00"]
       },
       {
         name: 'Lucy Chen',
@@ -592,7 +607,10 @@ async function seed() {
         catSlug: 'technology',
         expertise_areas: 'Bootcamp to job, Frontend, Interviews',
         rate: '$20',
-        is_featured: true
+        is_featured: true,
+        durs: ['30', '60'],
+        slots: ["09:30", "10:00", "10:30", "14:00", "14:30", "15:00", "17:00", "17:30"],
+        busy: ["10:00", "15:00"]
       }
     ];
 
@@ -609,6 +627,9 @@ async function seed() {
         expertise_areas: m.expertise_areas,
         rate: m.rate,
         is_featured: m.is_featured,
+        durs: m.durs,
+        slots: m.slots,
+        busy: m.busy,
         status: 'published'
       });
     }

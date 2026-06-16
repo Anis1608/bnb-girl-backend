@@ -298,30 +298,58 @@ app.get('/api/episodes/:id', async (req, res) => {
 // 6. GET /api/mentors - Consolidated mentors list
 app.get('/api/mentors', async (req, res) => {
   try {
+    const calculateRates = (baseRate) => {
+      let numericBase = 20;
+      if (baseRate) {
+        const match = String(baseRate).replace(/[^0-9]/g, '');
+        if (match) {
+          numericBase = parseInt(match, 10);
+        }
+      }
+      const isFree = !baseRate || baseRate.toLowerCase().includes('free') || numericBase === 0;
+      if (isFree) {
+        return { p30: 'Free', p60: 'Free', p120: 'Free' };
+      }
+      return {
+        p30: `$${numericBase}`,
+        p60: `$${Math.round(numericBase * 1.8)}`,
+        p120: `$${Math.round(numericBase * 3.2)}`
+      };
+    };
+
     // 1. Episode guests who are mentors
     const epMentors = await Episode.find({ is_mentor: true, status: 'published' })
       .populate('category_id')
       .sort({ is_featured: -1, created_at: -1 })
       .lean();
 
-    const formattedEp = epMentors.map(e => ({
-      id: e._id,
-      name: e.guest_name,
-      role: e.guest_role,
-      photo: e.guest_photo,
-      bio: e.guest_bio,
-      quote: e.guest_quote,
-      rate: e.mentor_rate,
-      availability: e.mentor_avail,
-      linkedin: e.mentor_linkedin,
-      expertise_areas: e.mentor_fields,
-      youtube_id: e.youtube_id,
-      episode_number: e.episode_number,
-      episode_title: e.title,
-      cat_name: e.category_id ? e.category_id.name : '',
-      cat_icon: e.category_id ? e.category_id.icon : '',
-      source: 'episode'
-    }));
+    const formattedEp = epMentors.map(e => {
+      const rates = calculateRates(e.mentor_rate);
+      return {
+        id: e._id,
+        name: e.guest_name,
+        role: e.guest_role,
+        photo: e.guest_photo,
+        bio: e.guest_bio,
+        quote: e.guest_quote,
+        rate: e.mentor_rate,
+        availability: e.mentor_avail,
+        linkedin: e.mentor_linkedin,
+        expertise_areas: e.mentor_fields,
+        youtube_id: e.youtube_id,
+        episode_number: e.episode_number,
+        episode_title: e.title,
+        cat_name: e.category_id ? e.category_id.name : '',
+        cat_icon: e.category_id ? e.category_id.icon : '',
+        source: 'episode',
+        durs: (e.durs && e.durs.length > 0) ? e.durs : ['30', '60'],
+        slots: (e.slots && e.slots.length > 0) ? e.slots : ["09:00", "09:30", "10:00", "11:00", "11:30", "14:00", "14:30", "15:00", "16:00", "16:30"],
+        busy: e.busy || ["11:00", "15:00"],
+        p30: rates.p30,
+        p60: rates.p60,
+        p120: rates.p120
+      };
+    });
 
     // 2. Dedicated mentors
     const dedicated = await Mentor.find({ status: 'published' })
@@ -330,25 +358,34 @@ app.get('/api/mentors', async (req, res) => {
       .sort({ is_featured: -1, created_at: -1 })
       .lean();
 
-    const formattedDedicated = dedicated.map(m => ({
-      id: m._id,
-      name: m.name,
-      role: m.role,
-      photo: m.photo,
-      bio: m.bio,
-      quote: m.quote,
-      rate: m.rate,
-      availability: m.availability,
-      linkedin: m.linkedin,
-      expertise_areas: m.expertise_areas,
-      youtube_id: m.episode_id ? m.episode_id.youtube_id : '',
-      episode_number: m.episode_id ? m.episode_id.episode_number : '',
-      episode_title: m.episode_id ? m.episode_id.title : '',
-      cat_name: m.category_id ? m.category_id.name : '',
-      cat_icon: m.category_id ? m.category_id.icon : '',
-      source: 'dedicated',
-      episode_id: m.episode_id ? m.episode_id._id : null
-    }));
+    const formattedDedicated = dedicated.map(m => {
+      const rates = calculateRates(m.rate);
+      return {
+        id: m._id,
+        name: m.name,
+        role: m.role,
+        photo: m.photo,
+        bio: m.bio,
+        quote: m.quote,
+        rate: m.rate,
+        availability: m.availability,
+        linkedin: m.linkedin,
+        expertise_areas: m.expertise_areas,
+        youtube_id: m.episode_id ? m.episode_id.youtube_id : '',
+        episode_number: m.episode_id ? m.episode_id.episode_number : '',
+        episode_title: m.episode_id ? m.episode_id.title : '',
+        cat_name: m.category_id ? m.category_id.name : '',
+        cat_icon: m.category_id ? m.category_id.icon : '',
+        source: 'dedicated',
+        episode_id: m.episode_id ? m.episode_id._id : null,
+        durs: (m.durs && m.durs.length > 0) ? m.durs : ['30', '60'],
+        slots: (m.slots && m.slots.length > 0) ? m.slots : ["09:00", "09:30", "10:00", "11:00", "11:30", "14:00", "14:30", "15:00", "16:00", "16:30"],
+        busy: m.busy || ["11:00", "15:00"],
+        p30: rates.p30,
+        p60: rates.p60,
+        p120: rates.p120
+      };
+    });
 
     // Combine lists
     res.json([...formattedEp, ...formattedDedicated]);
@@ -357,6 +394,7 @@ app.get('/api/mentors', async (req, res) => {
     res.status(500).json({ message: 'Server error fetching mentors' });
   }
 });
+
 
 // 7. GET /api/resources - Resources list with filters
 app.get('/api/resources', async (req, res) => {
