@@ -519,6 +519,101 @@ async function seed() {
     }
     console.log('Resources seeded!');
 
+    // 7. Seed Mentors
+    console.log('Seeding mentors...');
+    const mentorsData = [
+      {
+        name: 'Priya Sharma',
+        role: 'Senior Product Manager · Google',
+        photo: '',
+        bio: "Ex-startup PM, now Senior PM at Google. I help women break into product and negotiate offers they're proud of.",
+        quote: '',
+        availability: 'Tomorrow',
+        catSlug: 'technology',
+        expertise_areas: 'Career pivots, PM interviews, Negotiation',
+        rate: '$20',
+        is_featured: true
+      },
+      {
+        name: 'Vanya Mehta',
+        role: 'Founder & CEO · FinTech',
+        photo: '',
+        bio: "Raised $2M and scaled a fintech to 50k users. I demystify fundraising and early growth for women founders.",
+        quote: '',
+        availability: 'Fri',
+        catSlug: 'finance',
+        expertise_areas: 'Fundraising, Startups, Growth',
+        rate: '$36',
+        is_featured: true
+      },
+      {
+        name: 'Pehal Kaur',
+        role: 'Corporate Lawyer',
+        photo: '',
+        bio: "Corporate lawyer who's closed contracts north of $1M. I guide women into legal leadership and sharper negotiation.",
+        quote: '',
+        availability: 'Today',
+        catSlug: 'law',
+        expertise_areas: 'Contracts, Negotiation, Legal careers',
+        rate: '$20',
+        is_featured: true
+      },
+      {
+        name: 'Jane Williams',
+        role: 'Marketing Director · Agency',
+        photo: '',
+        bio: "Marketing Director who grew a brand from zero to 2M. I help you find positioning that actually converts.",
+        quote: '',
+        availability: 'Mon',
+        catSlug: 'business',
+        expertise_areas: 'Brand strategy, Content, Positioning',
+        rate: '$36',
+        is_featured: true
+      },
+      {
+        name: 'Erica Thompson',
+        role: 'Healthcare Administrator',
+        photo: '',
+        bio: "Led 120 clinicians across four hospitals. I coach women navigating healthcare operations and leadership.",
+        quote: '',
+        availability: 'Today',
+        catSlug: 'healthcare',
+        expertise_areas: 'Leadership, Operations, Strategy',
+        rate: '$20',
+        is_featured: true
+      },
+      {
+        name: 'Lucy Chen',
+        role: 'Software Engineer · Spotify',
+        photo: '',
+        bio: "Went bootcamp-to-Spotify in 14 months. I help career changers land their first real engineering role.",
+        quote: '',
+        availability: 'Wed',
+        catSlug: 'technology',
+        expertise_areas: 'Bootcamp to job, Frontend, Interviews',
+        rate: '$20',
+        is_featured: true
+      }
+    ];
+
+    for (const m of mentorsData) {
+      const catId = categoryMap[m.catSlug] || null;
+      await Mentor.create({
+        name: m.name,
+        role: m.role,
+        photo: m.photo,
+        bio: m.bio,
+        quote: m.quote,
+        availability: m.availability,
+        category_id: catId,
+        expertise_areas: m.expertise_areas,
+        rate: m.rate,
+        is_featured: m.is_featured,
+        status: 'published'
+      });
+    }
+    console.log('Mentors seeded!');
+
     console.log('Seeding completed successfully!');
     process.exit(0);
   } catch (err) {

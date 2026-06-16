@@ -26,6 +26,11 @@ const SpecializedField = require('./models/SpecializedField');
 const auth = require('./middleware/auth');
 
 const app = express();
+// Initialize Stripe safely
+const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
+if (!stripe) {
+  console.warn('WARNING: STRIPE_SECRET_KEY is not defined in .env. Stripe integrations will run in fallback/demo mode.');
+}
 const PORT = process.env.PORT || 5002;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bbg-platform';
 
@@ -482,6 +487,53 @@ app.post('/api/quiz', (req, res) => submitForm('quiz', req, res));
 app.post('/api/mentorship', (req, res) => submitForm('mentorship', req, res));
 app.post('/api/guest-apply', (req, res) => submitForm('guest_apply', req, res));
 app.post('/api/mentor-apply', (req, res) => submitForm('mentor_apply', req, res));
+
+// 8.5 POST /api/create-payment-intent - Stripe payment gateway Integration
+app.post('/api/create-payment-intent', async (req, res) => {
+  try {
+    const { amount, mentor, dur, date, time, email } = req.body;
+    
+    // Parse numeric amount from string like "$36" or "$20" or "36"
+    let numericAmount = 20;
+    if (amount) {
+      const match = String(amount).replace(/[^0-9]/g, '');
+      if (match) {
+        numericAmount = parseInt(match, 10);
+      }
+    }
+    
+    // Convert to cents
+    const amountInCents = numericAmount * 100;
+
+    // Check if Stripe is initialized or if it's the placeholder key
+    if (!stripe || process.env.STRIPE_SECRET_KEY === 'sk_test_placeholder_key_here' || !process.env.STRIPE_SECRET_KEY) {
+      console.warn('Running in Demo/Mock Mode. Stripe not fully configured.');
+      // Return a simulated client secret for the frontend to run direct booking
+      return res.json({ clientSecret: 'mock_client_secret_for_demo_mode_purposes_only' });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amountInCents,
+      currency: 'usd',
+      metadata: {
+        mentor: mentor || '',
+        duration: dur || '',
+        date: date || '',
+        time: time || '',
+        email: email || ''
+      },
+      automatic_payment_methods: {
+        enabled: true,
+      },
+    });
+
+    res.json({ clientSecret: paymentIntent.client_secret });
+  } catch (err) {
+    console.error('Error creating payment intent:', err);
+    res.status(500).json({ message: 'Internal server error creating payment intent', error: err.message });
+  }
+});
+
 
 // GET /api/cms - Public CMS content endpoint
 app.get('/api/cms', async (req, res) => {
