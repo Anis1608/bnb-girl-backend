@@ -15,6 +15,7 @@ const episodeSchema = new mongoose.Schema({
   youtube_id: { type: String, default: '' },
   spotify_url: { type: String, default: '' },
   audio_url: { type: String, default: '' },
+  pdf_url: { type: String, default: '' },
   duration: { type: String, default: '' },
   description: { type: String, default: '' },
   tags: { type: String, default: '' },

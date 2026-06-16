@@ -32,6 +32,21 @@ const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STR
 if (!stripe) {
   console.warn('WARNING: STRIPE_SECRET_KEY is not defined in .env. Stripe integrations will run in fallback/demo mode.');
 }
+
+// Initialize Cloudinary safely
+const cloudinary = require('cloudinary').v2;
+const isCloudinaryConfigured = process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET;
+if (isCloudinaryConfigured) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+  });
+  console.log('INFO: Cloudinary configured successfully.');
+} else {
+  console.warn('WARNING: Cloudinary credentials (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET) are not defined in .env. Uploads will fallback to local disk storage.');
+}
+
 const PORT = process.env.PORT || 5002;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bbg-platform';
 
@@ -215,6 +230,7 @@ app.get('/api/episodes', async (req, res) => {
       youtube_id: ep.youtube_id,
       spotify_url: ep.spotify_url,
       audio_url: ep.audio_url,
+      pdf_url: ep.pdf_url,
       duration: ep.duration,
       description: ep.description,
       tags: ep.tags,
@@ -275,6 +291,7 @@ app.get('/api/episodes/:id', async (req, res) => {
       youtube_id: ep.youtube_id,
       spotify_url: ep.spotify_url,
       audio_url: ep.audio_url,
+      pdf_url: ep.pdf_url,
       duration: ep.duration,
       description: ep.description,
       tags: ep.tags,
@@ -960,12 +977,33 @@ app.get('/api/admin/verify', auth, (req, res) => {
    ==================================================================== */
 
 // Upload handler
-app.post('/api/admin/upload', auth, upload.single('file'), (req, res) => {
+app.post('/api/admin/upload', auth, upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'No file uploaded' });
   }
-  const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-  res.json({ success: true, url: fileUrl, filename: req.file.filename });
+  try {
+    if (isCloudinaryConfigured) {
+      // Upload to Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        resource_type: 'auto',
+        folder: 'bbg_platform'
+      });
+      // Delete temporary local file
+      fs.unlinkSync(req.file.path);
+      return res.json({ success: true, url: result.secure_url, filename: req.file.filename });
+    } else {
+      // Local storage fallback
+      const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+      return res.json({ success: true, url: fileUrl, filename: req.file.filename });
+    }
+  } catch (err) {
+    console.error('Upload error:', err);
+    // Cleanup local file if it still exists
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    return res.status(500).json({ success: false, message: 'Upload failed: ' + err.message });
+  }
 });
 
 // EPISODES CRUD
