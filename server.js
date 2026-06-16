@@ -488,8 +488,8 @@ app.post('/api/mentorship', (req, res) => submitForm('mentorship', req, res));
 app.post('/api/guest-apply', (req, res) => submitForm('guest_apply', req, res));
 app.post('/api/mentor-apply', (req, res) => submitForm('mentor_apply', req, res));
 
-// 8.5 POST /api/create-payment-intent - Stripe payment gateway Integration (Secure Database Rates lookup)
-app.post('/api/create-payment-intent', async (req, res) => {
+// 8.5 POST /api/create-checkout-session - Stripe Checkout Session creation (Secure Rates lookup)
+app.post('/api/create-checkout-session', async (req, res) => {
   try {
     const { mentorId, mentor, dur, date, time, email } = req.body;
     
@@ -552,37 +552,127 @@ app.post('/api/create-payment-intent', async (req, res) => {
     // Convert to cents
     const amountInCents = finalAmount * 100;
 
-    // If session is Free ($0), return that no payment is required
+    // If session is Free ($0), return custom mock/free session indicator
     if (amountInCents === 0 || baseRate.toLowerCase().includes('free')) {
-      return res.json({ clientSecret: 'free_session_no_payment_intent_needed' });
+      return res.json({ id: 'free_session', url: null });
     }
 
     // Check if Stripe is initialized or if it's the placeholder key
     if (!stripe || process.env.STRIPE_SECRET_KEY === 'sk_test_placeholder_key_here' || !process.env.STRIPE_SECRET_KEY) {
       console.warn('Running in Demo/Mock Mode. Stripe not fully configured.');
-      return res.json({ clientSecret: 'mock_client_secret_for_demo_mode_purposes_only' });
+      // Return a mock checkout URL pointing directly to success page
+      const mockSuccessUrl = `${req.headers.origin || 'http://localhost:5173'}/mentorship?session_id=mock_checkout_session_id`;
+      return res.json({ id: 'mock_session', url: mockSuccessUrl });
     }
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amountInCents,
-      currency: 'usd',
+    // Create Stripe Checkout Session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: `Mentorship with ${mentor}`,
+              description: `${dur} minutes session on ${date} at ${time}`,
+            },
+            unit_amount: amountInCents,
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      success_url: `${req.headers.origin || 'http://localhost:5173'}/mentorship?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${req.headers.origin || 'http://localhost:5173'}/mentorship?cancelled=true`,
       metadata: {
-        mentor: mentor || '',
-        mentorId: mentorId || '',
-        duration: dur || '',
-        date: date || '',
-        time: time || '',
-        email: email || ''
-      },
-      automatic_payment_methods: {
-        enabled: true,
+        mentorId: String(mentorId || ''),
+        mentor: String(mentor || ''),
+        dur: String(dur || ''),
+        date: String(date || ''),
+        time: String(time || ''),
+        email: String(email || '')
       },
     });
 
-    res.json({ clientSecret: paymentIntent.client_secret });
+    res.json({ id: session.id, url: session.url });
   } catch (err) {
-    console.error('Error creating payment intent:', err);
-    res.status(500).json({ message: 'Internal server error creating payment intent', error: err.message });
+    console.error('Error creating checkout session:', err);
+    res.status(500).json({ message: 'Internal server error creating checkout session', error: err.message });
+  }
+});
+
+// 8.6 GET /api/verify-checkout-session/:sessionId - Stripe Checkout Session Verification
+app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    if (!sessionId) {
+      return res.status(400).json({ success: false, message: 'Session ID is required' });
+    }
+
+    let bookingData = null;
+
+    // Check if it's mock session
+    if (sessionId === 'mock_checkout_session_id') {
+      bookingData = {
+        mentor: 'Demo Mentor',
+        mentor_id: 'priya',
+        duration: '30',
+        date: new Date().toISOString().slice(0, 10),
+        time: '10:00',
+        email: 'demo@example.com',
+        amount: '$20',
+        submitted_at: new Date().toISOString()
+      };
+    } else {
+      // Check if Stripe is initialized
+      if (!stripe || process.env.STRIPE_SECRET_KEY === 'sk_test_placeholder_key_here' || !process.env.STRIPE_SECRET_KEY) {
+        return res.status(400).json({ success: false, message: 'Stripe not configured to retrieve session' });
+      }
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      if (!session) {
+        return res.status(404).json({ success: false, message: 'Checkout session not found on Stripe' });
+      }
+
+      if (session.payment_status !== 'paid') {
+        return res.status(400).json({ success: false, message: 'Checkout session not paid' });
+      }
+
+      const meta = session.metadata || {};
+      bookingData = {
+        mentor: meta.mentor,
+        mentor_id: meta.mentorId,
+        duration: meta.dur,
+        date: meta.date,
+        time: meta.time,
+        email: meta.email,
+        amount: `$${(session.amount_total / 100).toFixed(0)}`,
+        stripe_session_id: sessionId,
+        submitted_at: new Date().toISOString()
+      };
+    }
+
+    // Save booking in the Submission collection if it doesn't already exist (deduplication check by stripe_session_id)
+    let submission = null;
+    if (sessionId !== 'mock_checkout_session_id') {
+      submission = await Submission.findOne({ 'data.stripe_session_id': sessionId });
+    }
+
+    if (!submission) {
+      submission = new Submission({
+        form_type: 'mentorship',
+        data: bookingData,
+        ip_address: req.headers['x-forwarded-for'] || req.socket.remoteAddress
+      });
+      await submission.save();
+      console.log('Mentorship booking recorded from checkout session payment:', sessionId);
+    }
+
+    res.json({ success: true, booking: bookingData });
+  } catch (err) {
+    console.error('Error verifying checkout session:', err);
+    res.status(500).json({ message: 'Internal server error verifying session', error: err.message });
   }
 });
 
