@@ -24,6 +24,7 @@ const SpecializedField = require('./models/SpecializedField');
 
 // Load Auth Middleware
 const auth = require('./middleware/auth');
+const userAuth = require('./middleware/userAuth');
 
 const app = express();
 // Initialize Stripe safely
@@ -732,8 +733,89 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
   }
 });
 
+/* ====================================================================
+   CUSTOMER AUTHENTICATION & DASHBOARD ENDPOINTS
+   ==================================================================== */
+// POST /api/auth/register - Register customer
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: 'All fields are required' });
+    }
 
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: 'Email is already registered' });
+    }
 
+    const newUser = new User({
+      name,
+      email,
+      password,
+      role: 'customer'
+    });
+    await newUser.save();
+
+    const token = jwt.sign(
+      { id: newUser._id, name: newUser.name, email: newUser.email, role: 'customer' },
+      process.env.JWT_SECRET || 'supersecretjwtkeyforbbgplatform123!',
+      { expiresIn: '7d' }
+    );
+
+    res.json({ success: true, token, name: newUser.name, email: newUser.email });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error during registration' });
+  }
+});
+
+// POST /api/auth/login - Login customer
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    }
+
+    const user = await User.findOne({ email, role: 'customer' });
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    const token = jwt.sign(
+      { id: user._id, name: user.name, email: user.email, role: 'customer' },
+      process.env.JWT_SECRET || 'supersecretjwtkeyforbbgplatform123!',
+      { expiresIn: '7d' }
+    );
+
+    res.json({ success: true, token, name: user.name, email: user.email });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error during login' });
+  }
+});
+
+// GET /api/user/bookings - Get customer bookings (synchronized by email)
+app.get('/api/user/bookings', userAuth, async (req, res) => {
+  try {
+    const email = req.user.email;
+    const bookings = await Submission.find({
+      form_type: 'mentorship',
+      'data.email': email
+    }).sort({ created_at: -1 });
+
+    res.json({ success: true, bookings });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error fetching bookings' });
+  }
+});
 
 
 // GET /api/cms - Public CMS content endpoint
