@@ -901,6 +901,9 @@ app.get('/api/user/bookings', userAuth, async (req, res) => {
 // GET /api/cms - Public CMS content endpoint
 app.get('/api/cms', async (req, res) => {
   try {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     const dbOptions = await Option.find({ key: /^cms_/ });
     const cms = {};
     dbOptions.forEach(opt => {
