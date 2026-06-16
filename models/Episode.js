@@ -29,6 +29,7 @@ const episodeSchema = new mongoose.Schema({
   durs: { type: [String], default: ['30', '60'] },
   slots: { type: [String], default: ["09:00", "09:30", "10:00", "11:00", "11:30", "14:00", "14:30", "15:00", "16:00", "16:30"] },
   busy: { type: [String], default: ["11:00", "15:00"] },
+  pricing: { type: Map, of: String, default: {} },
   created_at: { type: Date, default: Date.now }
 });
 

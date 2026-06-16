@@ -347,7 +347,8 @@ app.get('/api/mentors', async (req, res) => {
         busy: e.busy || ["11:00", "15:00"],
         p30: rates.p30,
         p60: rates.p60,
-        p120: rates.p120
+        p120: rates.p120,
+        pricing: e.pricing || {}
       };
     });
 
@@ -383,7 +384,8 @@ app.get('/api/mentors', async (req, res) => {
         busy: m.busy || ["11:00", "15:00"],
         p30: rates.p30,
         p60: rates.p60,
-        p120: rates.p120
+        p120: rates.p120,
+        pricing: m.pricing || {}
       };
     });
 
@@ -570,21 +572,34 @@ app.post('/api/create-checkout-session', async (req, res) => {
       }
     }
 
-    // Parse numeric base rate
-    let numericBase = 20;
-    if (baseRate) {
-      const match = String(baseRate).replace(/[^0-9]/g, '');
-      if (match) {
-        numericBase = parseInt(match, 10);
-      }
+    let customPriceStr = null;
+    if (dbMentor && dbMentor.pricing) {
+      customPriceStr = typeof dbMentor.pricing.get === 'function' ? dbMentor.pricing.get(dur) : dbMentor.pricing[dur];
+    } else if (dbEp && dbEp.pricing) {
+      customPriceStr = typeof dbEp.pricing.get === 'function' ? dbEp.pricing.get(dur) : dbEp.pricing[dur];
     }
 
-    // Calculate dynamic rate based on duration
-    let finalAmount = numericBase;
-    if (dur === '60') {
-      finalAmount = Math.round(numericBase * 1.8);
-    } else if (dur === '120') {
-      finalAmount = Math.round(numericBase * 3.2);
+    let finalAmount;
+    if (customPriceStr) {
+      const match = String(customPriceStr).replace(/[^0-9]/g, '');
+      finalAmount = match ? parseInt(match, 10) : 20;
+    } else {
+      // Parse numeric base rate
+      let numericBase = 20;
+      if (baseRate) {
+        const match = String(baseRate).replace(/[^0-9]/g, '');
+        if (match) {
+          numericBase = parseInt(match, 10);
+        }
+      }
+
+      // Calculate dynamic rate based on duration
+      finalAmount = numericBase;
+      if (dur === '60') {
+        finalAmount = Math.round(numericBase * 1.8);
+      } else if (dur === '120') {
+        finalAmount = Math.round(numericBase * 3.2);
+      }
     }
 
     // Convert to cents
