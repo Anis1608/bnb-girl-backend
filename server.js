@@ -488,27 +488,78 @@ app.post('/api/mentorship', (req, res) => submitForm('mentorship', req, res));
 app.post('/api/guest-apply', (req, res) => submitForm('guest_apply', req, res));
 app.post('/api/mentor-apply', (req, res) => submitForm('mentor_apply', req, res));
 
-// 8.5 POST /api/create-payment-intent - Stripe payment gateway Integration
+// 8.5 POST /api/create-payment-intent - Stripe payment gateway Integration (Secure Database Rates lookup)
 app.post('/api/create-payment-intent', async (req, res) => {
   try {
-    const { amount, mentor, dur, date, time, email } = req.body;
+    const { mentorId, mentor, dur, date, time, email } = req.body;
     
-    // Parse numeric amount from string like "$36" or "$20" or "36"
-    let numericAmount = 20;
-    if (amount) {
-      const match = String(amount).replace(/[^0-9]/g, '');
-      if (match) {
-        numericAmount = parseInt(match, 10);
+    let baseRate = '$20';
+    let found = false;
+
+    // 1. Try finding by ID in Mentor collection
+    if (mentorId && mongoose.Types.ObjectId.isValid(mentorId)) {
+      const dbMentor = await Mentor.findById(mentorId);
+      if (dbMentor) {
+        baseRate = dbMentor.rate || '$20';
+        found = true;
       }
     }
     
+    // 2. Try finding by ID in Episode collection (some guest mentors are episodes)
+    if (!found && mentorId && mongoose.Types.ObjectId.isValid(mentorId)) {
+      const dbEp = await Episode.findById(mentorId);
+      if (dbEp) {
+        baseRate = dbEp.mentor_rate || '$20';
+        found = true;
+      }
+    }
+    
+    // 3. Fallback to name search in Mentor
+    if (!found && mentor) {
+      const dbMentor = await Mentor.findOne({ name: mentor });
+      if (dbMentor) {
+        baseRate = dbMentor.rate || '$20';
+        found = true;
+      }
+    }
+    
+    // 4. Fallback to name search in Episode
+    if (!found && mentor) {
+      const dbEp = await Episode.findOne({ guest_name: mentor, is_mentor: true });
+      if (dbEp) {
+        baseRate = dbEp.mentor_rate || '$20';
+        found = true;
+      }
+    }
+
+    // Parse numeric base rate
+    let numericBase = 20;
+    if (baseRate) {
+      const match = String(baseRate).replace(/[^0-9]/g, '');
+      if (match) {
+        numericBase = parseInt(match, 10);
+      }
+    }
+
+    // Calculate dynamic rate based on duration
+    let finalAmount = numericBase;
+    if (dur === '60') {
+      finalAmount = Math.round(numericBase * 1.8);
+    } else if (dur === '120') {
+      finalAmount = Math.round(numericBase * 3.2);
+    }
+
     // Convert to cents
-    const amountInCents = numericAmount * 100;
+    const amountInCents = finalAmount * 100;
+
+    // If session is Free ($0), return that no payment is required
+    if (amountInCents === 0 || baseRate.toLowerCase().includes('free')) {
+      return res.json({ clientSecret: 'free_session_no_payment_intent_needed' });
+    }
 
     // Check if Stripe is initialized or if it's the placeholder key
     if (!stripe || process.env.STRIPE_SECRET_KEY === 'sk_test_placeholder_key_here' || !process.env.STRIPE_SECRET_KEY) {
       console.warn('Running in Demo/Mock Mode. Stripe not fully configured.');
-      // Return a simulated client secret for the frontend to run direct booking
       return res.json({ clientSecret: 'mock_client_secret_for_demo_mode_purposes_only' });
     }
 
@@ -517,6 +568,7 @@ app.post('/api/create-payment-intent', async (req, res) => {
       currency: 'usd',
       metadata: {
         mentor: mentor || '',
+        mentorId: mentorId || '',
         duration: dur || '',
         date: date || '',
         time: time || '',
@@ -533,6 +585,9 @@ app.post('/api/create-payment-intent', async (req, res) => {
     res.status(500).json({ message: 'Internal server error creating payment intent', error: err.message });
   }
 });
+
+
+
 
 
 // GET /api/cms - Public CMS content endpoint
