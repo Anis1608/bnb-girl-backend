@@ -62,7 +62,9 @@ const cmsDefaults = {
   cms_series_mental_title: "Mental Health & Career", cms_series_mental_epcount: "4 Episodes", cms_series_mental_category: "health", cms_series_mental_youtube: "", cms_series_mental_percentage: "50%",
   cms_series_law_title: "Breaking Barriers in Law", cms_series_law_epcount: "5 Episodes", cms_series_law_category: "law", cms_series_law_youtube: "", cms_series_law_percentage: "0%",
   cms_series_creative_title: "The Creative Career", cms_series_creative_epcount: "7 Episodes", cms_series_creative_category: "arts", cms_series_creative_youtube: "", cms_series_creative_percentage: "14%",
-  cms_series_finance_title: "Corporate & Finance", cms_series_finance_epcount: "5 Episodes", cms_series_finance_category: "finance", cms_series_finance_youtube: "", cms_series_finance_percentage: "0%"
+  cms_series_finance_title: "Corporate & Finance", cms_series_finance_epcount: "5 Episodes", cms_series_finance_category: "finance", cms_series_finance_youtube: "", cms_series_finance_percentage: "0%",
+  // Spotlight / This Week's Guest CMS
+  cms_spotlight_mentor_id: ""
 };
 
 async function migrate() {
