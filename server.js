@@ -536,9 +536,12 @@ app.post('/api/create-checkout-session', async (req, res) => {
     let baseRate = '$20';
     let found = false;
 
+    let dbMentor = null;
+    let dbEp = null;
+
     // 1. Try finding by ID in Mentor collection
     if (mentorId && mongoose.Types.ObjectId.isValid(mentorId)) {
-      const dbMentor = await Mentor.findById(mentorId);
+      dbMentor = await Mentor.findById(mentorId);
       if (dbMentor) {
         baseRate = dbMentor.rate || '$20';
         found = true;
@@ -547,7 +550,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
     
     // 2. Try finding by ID in Episode collection (some guest mentors are episodes)
     if (!found && mentorId && mongoose.Types.ObjectId.isValid(mentorId)) {
-      const dbEp = await Episode.findById(mentorId);
+      dbEp = await Episode.findById(mentorId);
       if (dbEp) {
         baseRate = dbEp.mentor_rate || '$20';
         found = true;
@@ -556,7 +559,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
     
     // 3. Fallback to name search in Mentor
     if (!found && mentor) {
-      const dbMentor = await Mentor.findOne({ name: mentor });
+      dbMentor = await Mentor.findOne({ name: mentor });
       if (dbMentor) {
         baseRate = dbMentor.rate || '$20';
         found = true;
@@ -565,7 +568,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
     
     // 4. Fallback to name search in Episode
     if (!found && mentor) {
-      const dbEp = await Episode.findOne({ guest_name: mentor, is_mentor: true });
+      dbEp = await Episode.findOne({ guest_name: mentor, is_mentor: true });
       if (dbEp) {
         baseRate = dbEp.mentor_rate || '$20';
         found = true;
