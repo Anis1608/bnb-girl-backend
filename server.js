@@ -1134,14 +1134,15 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ success: false, message: 'All fields are required' });
     }
 
-    const existingUser = await User.findOne({ email });
+    const cleanEmail = email.trim().toLowerCase();
+    const existingUser = await User.findOne({ email: cleanEmail });
     if (existingUser) {
       return res.status(400).json({ success: false, message: 'Email is already registered' });
     }
 
     const newUser = new User({
       name,
-      email,
+      email: cleanEmail,
       password,
       role: 'customer'
     });
@@ -1168,7 +1169,8 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and password are required' });
     }
 
-    const user = await User.findOne({ email, role: 'customer' });
+    const cleanEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: cleanEmail, role: 'customer' });
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
@@ -1199,7 +1201,7 @@ app.post('/api/auth/firebase', async (req, res) => {
       return res.status(400).json({ success: false, message: 'ID token is required' });
     }
 
-    let verifiedEmail = email;
+    let verifiedEmail = email ? email.trim().toLowerCase() : '';
     let verifiedName = name || '';
     let firebaseUid = '';
 
@@ -1232,7 +1234,7 @@ app.post('/api/auth/firebase', async (req, res) => {
       }
 
       const firebaseUser = verifyData.users[0];
-      verifiedEmail = firebaseUser.email;
+      verifiedEmail = firebaseUser.email ? firebaseUser.email.trim().toLowerCase() : verifiedEmail;
       verifiedName = firebaseUser.displayName || name || '';
       firebaseUid = firebaseUser.localId;
     }
@@ -1254,6 +1256,7 @@ app.post('/api/auth/firebase', async (req, res) => {
       if (!user.firebaseUid) {
         user.firebaseUid = firebaseUid;
         await user.save();
+        console.log('Mapped existing email to firebaseUid for user:', verifiedEmail);
       }
     }
 
