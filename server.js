@@ -2348,8 +2348,28 @@ function startSelfPing() {
 
 console.log('Connecting to MongoDB database...');
 mongoose.connect(MONGODB_URI)
-  .then(() => {
+  .then(async () => {
     console.log('MongoDB connected successfully!');
+
+    // Clean up null-valued fields and drop old unique indexes so Mongoose can rebuild them as sparse
+    try {
+      const db = mongoose.connection.db;
+      const usersCollection = db.collection('users');
+
+      // Unset null values to prevent duplicate key constraint violations
+      await usersCollection.updateMany({ username: null }, { $unset: { username: "" } });
+      await usersCollection.updateMany({ firebaseUid: null }, { $unset: { firebaseUid: "" } });
+      await usersCollection.updateMany({ email: null }, { $unset: { email: "" } });
+
+      // Drop indexes (if they exist) so Mongoose can recreate them with the sparse: true option
+      await usersCollection.dropIndex('username_1').catch(() => {});
+      await usersCollection.dropIndex('firebaseUid_1').catch(() => {});
+      
+      console.log('Successfully cleaned up null indexes in MongoDB users collection.');
+    } catch (indexErr) {
+      console.error('Error during index configuration cleanup:', indexErr.message);
+    }
+
     seedCmsDefaults();
     app.listen(PORT, () => {
       console.log(`BBG Backend Server running on port ${PORT}`);
