@@ -2436,7 +2436,21 @@ const cmsDefaults = {
   cms_resources_stat_fields_num: "8",
   cms_resources_stat_fields_lbl: "Career Fields",
   cms_resources_stat_templates_num: "12",
-  cms_resources_stat_templates_lbl: "Templates"
+  cms_resources_stat_templates_lbl: "Templates",
+  // Resources Page Types Explainer & Coming Soon
+  cms_resources_types_kicker: "What's Inside",
+  cms_resources_types_title: "8 Types of Resources,<br/>All Free to Download",
+  cms_resources_type_pdf_desc: "Key takeaways, guest quotes, action items and reflection prompts for every episode.",
+  cms_resources_type_guide_desc: "Step-by-step roadmaps to break into each field — qualifications, timelines, first steps.",
+  cms_resources_type_template_desc: "Field-specific CV/resume templates, cover letter frameworks, and LinkedIn bio builders.",
+  cms_resources_type_worksheet_desc: "Goal-setting workbooks, self-assessment guides, and quarterly reflection journals.",
+  cms_resources_type_reading_desc: "Curated books, podcasts, and courses recommended directly by our guest experts.",
+  cms_resources_type_toolkit_desc: "Interview prep kits, skill checklists, and everything you need to land your first role.",
+  cms_resources_type_salary_desc: "Real earnings data across industries — so you know your worth before any negotiation.",
+  cms_resources_type_script_desc: "Networking email templates, LinkedIn outreach scripts, and mentorship request messages.",
+  cms_resources_coming_kicker: "🔒 Coming Soon",
+  cms_resources_coming_title: "Resources in the Pipeline",
+  cms_resources_coming_subtitle: "Notify me when they drop."
 };
 
 const seedCmsDefaults = async () => {
