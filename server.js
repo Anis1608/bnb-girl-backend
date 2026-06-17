@@ -715,6 +715,19 @@ app.post('/api/mentor-application', upload.single('photo'), async (req, res) => 
       return res.status(400).json({ success: false, message: 'Name and Email are required' });
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Prevent duplicate applications or applications from existing mentors
+    const existingMentor = await Mentor.findOne({ email: cleanEmail });
+    if (existingMentor) {
+      return res.status(400).json({ success: false, message: 'This email is already registered as an active mentor on our platform.' });
+    }
+
+    const existingApp = await MentorApplication.findOne({ email: cleanEmail, status: 'pending' });
+    if (existingApp) {
+      return res.status(400).json({ success: false, message: 'An application is already pending or under review for this email address.' });
+    }
+
     let photoUrl = '';
     if (req.file) {
       if (isCloudinaryConfigured) {
@@ -733,7 +746,7 @@ app.post('/api/mentor-application', upload.single('photo'), async (req, res) => 
 
     const application = new MentorApplication({
       name,
-      email,
+      email: cleanEmail,
       role: role || '',
       organisation: organisation || '',
       linkedin: linkedin || '',
