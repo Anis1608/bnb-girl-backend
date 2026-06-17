@@ -1638,54 +1638,74 @@ app.put('/api/admin/mentor-applications/:id/accept', auth, async (req, res) => {
     await newMentor.save();
 
     // Send email to applicant with credentials
-    sendEmail({
-      to: appRecord.email,
-      subject: '🎉 Congratulations! Your mentorship application has been accepted!',
-      text: `Hello ${appRecord.name},\n\nWe are delighted to inform you that your mentor application has been accepted!\n\nYour profile has been created and is now live on the Bold & Brilliant Girls platform. You can find your profile under the mentorship directory.\n\nHere are your login credentials to manage your profile and bookings:\n- Login Link: https://bnbgirl.com/mentor-dashboard\n- Email: ${appRecord.email}\n- Temporary Password: ${tempPassword}\n\nThank you for joining us to empower young girls!\n\nBest regards,\nBold & Brilliant Girls Team`,
-      html: `
-        <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
-          <div style="text-align: center; margin-bottom: 20px;">
-            <span style="font-size: 48px;">🎉</span>
-          </div>
-          <h2 style="color: #6C5DD3; text-align: center; margin-top: 10px;">Application Accepted!</h2>
-          <p>Dear <strong>${appRecord.name}</strong>,</p>
-          <p>We are absolutely thrilled to inform you that your application to become a mentor on the <strong>Bold & Brilliant Girls</strong> platform has been <strong>accepted</strong>!</p>
-          <p>Your professional profile is now live in our mentor directory, making it visible to students and young girls looking for guidance, inspiration, and mentorship.</p>
-          
-          <div style="background-color: #f7fafc; border-left: 4px solid #6C5DD3; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
-            <p style="margin: 0; font-weight: bold; color: #4a5568;">Your Mentor Profile Details:</p>
-            <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #4a5568; line-height: 1.6;">
-              <li><strong>Name:</strong> ${appRecord.name}</li>
-              <li><strong>Role:</strong> ${appRecord.role || 'N/A'}</li>
-              <li><strong>Expertise:</strong> ${appRecord.expertise || 'N/A'}</li>
-            </ul>
-          </div>
+    let emailSent = false;
+    let emailError = null;
+    try {
+      const emailResult = await sendEmail({
+        to: appRecord.email,
+        subject: '🎉 Congratulations! Your mentorship application has been accepted!',
+        text: `Hello ${appRecord.name},\n\nWe are delighted to inform you that your mentor application has been accepted!\n\nYour profile has been created and is now live on the Bold & Brilliant Girls platform. You can find your profile under the mentorship directory.\n\nHere are your login credentials to manage your profile and bookings:\n- Login Link: https://bnbgirl.com/mentor-dashboard\n- Email: ${appRecord.email}\n- Temporary Password: ${tempPassword}\n\nThank you for joining us to empower young girls!\n\nBest regards,\nBold & Brilliant Girls Team`,
+        html: `
+          <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <span style="font-size: 48px;">🎉</span>
+            </div>
+            <h2 style="color: #6C5DD3; text-align: center; margin-top: 10px;">Application Accepted!</h2>
+            <p>Dear <strong>${appRecord.name}</strong>,</p>
+            <p>We are absolutely thrilled to inform you that your application to become a mentor on the <strong>Bold & Brilliant Girls</strong> platform has been <strong>accepted</strong>!</p>
+            <p>Your professional profile is now live in our mentor directory, making it visible to students and young girls looking for guidance, inspiration, and mentorship.</p>
+            
+            <div style="background-color: #f7fafc; border-left: 4px solid #6C5DD3; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+              <p style="margin: 0; font-weight: bold; color: #4a5568;">Your Mentor Profile Details:</p>
+              <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #4a5568; line-height: 1.6;">
+                <li><strong>Name:</strong> ${appRecord.name}</li>
+                <li><strong>Role:</strong> ${appRecord.role || 'N/A'}</li>
+                <li><strong>Expertise:</strong> ${appRecord.expertise || 'N/A'}</li>
+              </ul>
+            </div>
 
-          <div style="background-color: #fef08a; border-left: 4px solid #ca8a04; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
-            <p style="margin: 0; font-weight: bold; color: #854d0e;">Your Mentor Portal Credentials:</p>
-            <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #854d0e; line-height: 1.6;">
-              <li><strong>Login Link:</strong> <a href="https://bnbgirl.com/mentor-dashboard" style="color: #ca8a04; text-decoration: underline;">bnbgirl.com/mentor-dashboard</a></li>
-              <li><strong>Email:</strong> ${appRecord.email}</li>
-              <li><strong>Temporary Password:</strong> <code style="background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px;">${tempPassword}</code></li>
-            </ul>
-            <p style="margin: 10px 0 0 0; font-size: 12px; color: #854d0e;">Please log in using these details and update your password in the profile settings.</p>
-          </div>
+            <div style="background-color: #fef08a; border-left: 4px solid #ca8a04; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+              <p style="margin: 0; font-weight: bold; color: #854d0e;">Your Mentor Portal Credentials:</p>
+              <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #854d0e; line-height: 1.6;">
+                <li><strong>Login Link:</strong> <a href="https://bnbgirl.com/mentor-dashboard" style="color: #ca8a04; text-decoration: underline;">bnbgirl.com/mentor-dashboard</a></li>
+                <li><strong>Email:</strong> ${appRecord.email}</li>
+                <li><strong>Temporary Password:</strong> <code style="background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px;">${tempPassword}</code></li>
+              </ul>
+              <p style="margin: 10px 0 0 0; font-size: 12px; color: #854d0e;">Please log in using these details and update your password in the profile settings.</p>
+            </div>
 
-          <p>Students will now be able to view your background and book interactive sessions with you based on your availability.</p>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="https://bnbgirl.com/mentorship" style="background-color: #6C5DD3; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Mentor Directory</a>
-          </div>
+            <p>Students will now be able to view your background and book interactive sessions with you based on your availability.</p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="https://bnbgirl.com/mentorship" style="background-color: #6C5DD3; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Mentor Directory</a>
+            </div>
 
-          <p>Thank you for your commitment to fostering and empowering the next generation of female leaders and innovators. We are honored to have you on board!</p>
-          
-          <hr style="border: 0; border-top: 1px solid #edf2f7; margin: 25px 0;" />
-          <p style="font-size: 12px; color: #a0aec0; text-align: center;">&copy; ${new Date().getFullYear()} Bold & Brilliant Girls. All rights reserved.</p>
-        </div>
-      `
+            <p>Thank you for your commitment to fostering and empowering the next generation of female leaders and innovators. We are honored to have you on board!</p>
+            
+            <hr style="border: 0; border-top: 1px solid #edf2f7; margin: 25px 0;" />
+            <p style="font-size: 12px; color: #a0aec0; text-align: center;">&copy; ${new Date().getFullYear()} Bold & Brilliant Girls. All rights reserved.</p>
+          </div>
+        `
+      });
+      emailSent = emailResult ? emailResult.success : false;
+      if (emailResult && !emailResult.success) {
+        emailError = emailResult.message || emailResult.error;
+      }
+    } catch (err) {
+      console.error('Email sending error:', err);
+      emailError = err.message;
+    }
+
+    res.json({ 
+      success: true, 
+      message: emailSent 
+        ? 'Application accepted and Mentor profile created' 
+        : `Application accepted and Mentor profile created, but email could not be sent: ${emailError || 'SMTP credentials are not configured on Render.'}`, 
+      data: appRecord, 
+      mentor: newMentor,
+      emailSent,
+      emailError
     });
-
-    res.json({ success: true, message: 'Application accepted and Mentor profile created', data: appRecord, mentor: newMentor });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
