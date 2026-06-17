@@ -6,51 +6,8 @@ const Mentor = require('../models/Mentor');
 const Submission = require('../models/Submission');
 const mentorAuth = require('../middleware/mentorAuth');
 
-// Helper to send emails using Resend HTTP API or Nodemailer/SMTP
+// Helper to send emails using nodemailer/SMTP
 const sendEmail = async ({ to, subject, text, html, attachments }) => {
-  // 1. Resend HTTP API Integration (Bypasses SMTP port blocking on cloud hosts)
-  if (process.env.RESEND_API_KEY) {
-    try {
-      console.log(`[Resend Email] Attempting HTTP send to: ${to}`);
-      let resendAttachments = undefined;
-      if (attachments && attachments.length > 0) {
-        resendAttachments = attachments.map(att => ({
-          filename: att.filename,
-          content: typeof att.content === 'string' ? att.content : Buffer.isBuffer(att.content) ? att.content.toString('base64') : att.content
-        }));
-      }
-
-      const resendFrom = process.env.RESEND_FROM_EMAIL || 'Bold & Brilliant Girls <onboarding@resend.dev>';
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          from: resendFrom,
-          to: Array.isArray(to) ? to : [to],
-          subject,
-          text,
-          html,
-          attachments: resendAttachments
-        })
-      });
-
-      const resData = await response.json();
-      if (response.ok) {
-        console.log(`[Resend Email Sent] ID: ${resData.id} to ${to}`);
-        return { success: true, messageId: resData.id };
-      } else {
-        console.error('[Resend API Error]:', resData);
-        // Do not throw, fallback to SMTP if possible
-      }
-    } catch (resendErr) {
-      console.error('[Resend Exception, falling back to SMTP]:', resendErr.message);
-    }
-  }
-
-  // 2. Nodemailer SMTP Fallback
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
   const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
@@ -58,7 +15,7 @@ const sendEmail = async ({ to, subject, text, html, attachments }) => {
 
   if (!smtpUser || !smtpPass) {
     console.warn(`WARNING: SMTP credentials not configured. Skipping mail to ${to}`);
-    return { success: false, message: 'SMTP credentials not configured and Resend not active.' };
+    return { success: false, message: 'SMTP credentials not configured.' };
   }
 
   try {
