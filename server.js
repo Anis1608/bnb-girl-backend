@@ -2450,7 +2450,31 @@ const cmsDefaults = {
   cms_resources_type_script_desc: "Networking email templates, LinkedIn outreach scripts, and mentorship request messages.",
   cms_resources_coming_kicker: "🔒 Coming Soon",
   cms_resources_coming_title: "Resources in the Pipeline",
-  cms_resources_coming_subtitle: "Notify me when they drop."
+  cms_resources_coming_subtitle: "Notify me when they drop.",
+  // Coming Soon Cards
+  cms_resources_coming_card1_icon: "🏛️",
+  cms_resources_coming_card1_title: "Breaking Into Law — The Complete Playbook",
+  cms_resources_coming_card1_desc: "Bar exam timelines, law school application guide, and networking scripts for aspiring lawyers.",
+  cms_resources_coming_card1_tag: "⚖️ Law · Q2 2026",
+  cms_resources_coming_card1_notify: "Law Playbook",
+
+  cms_resources_coming_card2_icon: "🎙️",
+  cms_resources_coming_card2_title: "Podcast Ep. 05 — Healthcare Career Guide",
+  cms_resources_coming_card2_desc: "Full insight PDF for our upcoming episode featuring a senior NHS consultant and medical researcher.",
+  cms_resources_coming_card2_tag: "🏥 Healthcare · Coming June",
+  cms_resources_coming_card2_notify: "Healthcare Guide",
+
+  cms_resources_coming_card3_icon: "💡",
+  cms_resources_coming_card3_title: "Founder's Toolkit — Starting From Zero",
+  cms_resources_coming_card3_desc: "Business model canvas, pitch deck templates, and a step-by-step guide to validating your idea.",
+  cms_resources_coming_card3_tag: "🚀 Entrepreneurship · Q2 2026",
+  cms_resources_coming_card3_notify: "Founder Toolkit",
+
+  cms_resources_coming_card4_icon: "🎨",
+  cms_resources_coming_card4_title: "Creative Industry Rate Card & Negotiation Guide",
+  cms_resources_coming_card4_desc: "Freelance rates, agency salaries, and scripts for negotiating your creative fees like a pro.",
+  cms_resources_coming_card4_tag: "🎨 Creative · Q3 2026",
+  cms_resources_coming_card4_notify: "Creative Rate Guide"
 };
 
 const seedCmsDefaults = async () => {
@@ -2524,3 +2548,4 @@ mongoose.connect(MONGODB_URI)
     console.error('Database connection failed:', err);
     process.exit(1);
   });
+// Trigger restart for database seeding verification
