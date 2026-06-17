@@ -26,7 +26,8 @@ const sendEmail = async ({ to, subject, text, html, attachments }) => {
       auth: {
         user: smtpUser,
         pass: smtpPass
-      }
+      },
+      family: 4 // Force IPv4 to resolve ENETUNREACH on IPv6 in environments like Render
     });
 
     await transporter.sendMail({

@@ -69,7 +69,8 @@ const sendEmail = async ({ to, subject, text, html, attachments }) => {
       auth: {
         user: smtpUser,
         pass: smtpPass
-      }
+      },
+      family: 4 // Force IPv4 to resolve ENETUNREACH on IPv6 in environments like Render
     });
 
     const info = await transporter.sendMail({
@@ -178,7 +179,7 @@ app.get('/api/stats', async (req, res) => {
   try {
     const keys = ['episodes', 'mentors', 'community', 'downloads', 'countries', 'response', 'industries', 'views', 'views_unit'];
     const dbOptions = await Option.find({ key: { $in: keys.map(k => `bbg_stat_${k}`) } });
-    
+
     const stats = {};
     // Load defaults first
     stats['views_unit'] = 'M+';
@@ -216,12 +217,12 @@ app.get('/api/stats', async (req, res) => {
 app.get('/api/categories', async (req, res) => {
   try {
     const categories = await Category.find().sort({ sort_order: 1, name: 1 }).lean();
-    
+
     // Attach sub_count dynamically
     for (const cat of categories) {
       cat.sub_count = await Subcategory.countDocuments({ category_id: cat._id });
     }
-    
+
     res.json(categories);
   } catch (err) {
     console.error(err);
@@ -715,19 +716,6 @@ app.post('/api/mentor-application', upload.single('photo'), async (req, res) => 
       return res.status(400).json({ success: false, message: 'Name and Email are required' });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
-
-    // Prevent duplicate applications or applications from existing mentors
-    const existingMentor = await Mentor.findOne({ email: cleanEmail });
-    if (existingMentor) {
-      return res.status(400).json({ success: false, message: 'This email is already registered as an active mentor on our platform.' });
-    }
-
-    const existingApp = await MentorApplication.findOne({ email: cleanEmail, status: 'pending' });
-    if (existingApp) {
-      return res.status(400).json({ success: false, message: 'An application is already pending or under review for this email address.' });
-    }
-
     let photoUrl = '';
     if (req.file) {
       if (isCloudinaryConfigured) {
@@ -746,7 +734,7 @@ app.post('/api/mentor-application', upload.single('photo'), async (req, res) => 
 
     const application = new MentorApplication({
       name,
-      email: cleanEmail,
+      email,
       role: role || '',
       organisation: organisation || '',
       linkedin: linkedin || '',
@@ -762,7 +750,7 @@ app.post('/api/mentor-application', upload.single('photo'), async (req, res) => 
 
     // Send email notification to admin & applicant (non-blocking)
     const adminEmail = process.env.ADMIN_EMAIL || 'sanah@bnbgirl.com';
-    
+
     // Notification to admin
     sendEmail({
       to: adminEmail,
@@ -825,7 +813,7 @@ app.post('/api/mentor-application', upload.single('photo'), async (req, res) => 
 app.post('/api/create-checkout-session', async (req, res) => {
   try {
     const { mentorId, mentor, dur, date, time, email } = req.body;
-    
+
     let baseRate = '$20';
     let found = false;
 
@@ -840,7 +828,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
         found = true;
       }
     }
-    
+
     // 2. Try finding by ID in Episode collection (some guest mentors are episodes)
     if (!found && mentorId && mongoose.Types.ObjectId.isValid(mentorId)) {
       dbEp = await Episode.findById(mentorId);
@@ -849,7 +837,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
         found = true;
       }
     }
-    
+
     // 3. Fallback to name search in Mentor
     if (!found && mentor) {
       dbMentor = await Mentor.findOne({ name: mentor });
@@ -858,7 +846,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
         found = true;
       }
     }
-    
+
     // 4. Fallback to name search in Episode
     if (!found && mentor) {
       dbEp = await Episode.findOne({ guest_name: mentor, is_mentor: true });
@@ -1231,7 +1219,7 @@ app.post('/api/auth/firebase', async (req, res) => {
       if (!apiKey) {
         return res.status(500).json({ success: false, message: 'Firebase API Key is not configured on the backend.' });
       }
-      
+
       const verifyRes = await fetch(
         `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
         {
@@ -1240,7 +1228,7 @@ app.post('/api/auth/firebase', async (req, res) => {
           body: JSON.stringify({ idToken })
         }
       );
-      
+
       const verifyData = await verifyRes.json();
       if (!verifyRes.ok || !verifyData.users || verifyData.users.length === 0) {
         return res.status(401).json({ success: false, message: 'Invalid or expired Firebase token' });
@@ -1351,8 +1339,8 @@ app.put('/api/user/bookings/:id/reschedule-request', userAuth, async (req, res) 
       const dur = parseInt(b.data.duration) || 30;
       const endMins = startMins + dur;
       return (requestedStart >= startMins && requestedStart < endMins) ||
-             (requestedEnd > startMins && requestedEnd <= endMins) ||
-             (requestedStart <= startMins && requestedEnd >= endMins);
+        (requestedEnd > startMins && requestedEnd <= endMins) ||
+        (requestedStart <= startMins && requestedEnd >= endMins);
     });
 
     if (hasOverlap) {
@@ -1625,7 +1613,7 @@ app.put('/api/admin/mentor-applications/:id/accept', auth, async (req, res) => {
     if (!appRecord) {
       return res.status(404).json({ message: 'Mentor application not found' });
     }
-    
+
     if (appRecord.status === 'accepted') {
       return res.status(400).json({ message: 'Application is already accepted' });
     }
@@ -1709,12 +1697,12 @@ app.put('/api/admin/mentor-applications/:id/accept', auth, async (req, res) => {
       emailError = err.message;
     }
 
-    res.json({ 
-      success: true, 
-      message: emailSent 
-        ? 'Application accepted and Mentor profile created' 
-        : `Application accepted and Mentor profile created, but email could not be sent: ${emailError || 'SMTP credentials are not configured on Render.'}`, 
-      data: appRecord, 
+    res.json({
+      success: true,
+      message: emailSent
+        ? 'Application accepted and Mentor profile created'
+        : `Application accepted and Mentor profile created, but email could not be sent: ${emailError || 'SMTP credentials are not configured on Render.'}`,
+      data: appRecord,
       mentor: newMentor,
       emailSent,
       emailError
@@ -1997,10 +1985,10 @@ app.put('/api/admin/submissions/:id', auth, async (req, res) => {
 app.get('/api/admin/submissions/export', auth, async (req, res) => {
   try {
     const { form } = req.query;
-    
+
     // Header setup
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename=bbg-export-${form || 'all'}-${new Date().toISOString().slice(0,10)}.csv`);
+    res.setHeader('Content-Disposition', `attachment; filename=bbg-export-${form || 'all'}-${new Date().toISOString().slice(0, 10)}.csv`);
 
     const writeRow = (arr) => {
       // Escape CSV columns
@@ -2042,10 +2030,10 @@ app.get('/api/admin/submissions/export', auth, async (req, res) => {
       // Export single form type
       const submissions = await Submission.find({ form_type: form }).sort({ created_at: -1 });
       const cols = getCols(form);
-      
+
       // Header row
       writeRow(['ID', 'Date', 'Status', ...cols.map(c => c.toUpperCase().replace('_', ' '))]);
-      
+
       submissions.forEach(sub => {
         const d = sub.data || {};
         const row = [
@@ -2104,7 +2092,7 @@ app.get('/api/admin/dashboard-stats', auth, async (req, res) => {
     const draftResources = await Resource.countDocuments({ status: 'draft' });
 
     const totalSubmissions = await Submission.countDocuments({});
-    
+
     // Status breakdown
     const submissionsByStatus = {
       new: await Submission.countDocuments({ status: 'new' }),
@@ -2151,7 +2139,7 @@ app.get('/api/admin/dashboard-stats', auth, async (req, res) => {
       const count = await Submission.countDocuments({
         created_at: { $gte: start, $lt: end }
       });
-      
+
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
       last7Days.push({ day: dayName, date: d.toISOString().slice(0, 10), count });
     }
@@ -2187,7 +2175,7 @@ app.get('/api/admin/stats', auth, async (req, res) => {
   try {
     const keys = ['episodes', 'mentors', 'community', 'downloads', 'countries', 'response', 'industries', 'views', 'views_unit'];
     const dbOptions = await Option.find({ key: { $in: keys.map(k => `bbg_stat_${k}`) } });
-    
+
     const stats = {};
     keys.forEach(k => {
       stats[k] = k === 'views_unit' ? 'M+' : '0';
@@ -2239,11 +2227,11 @@ app.get('/api/admin/settings', auth, async (req, res) => {
 app.put('/api/admin/settings', auth, async (req, res) => {
   try {
     const { bbg_email, bbg_email_on_submit, bbg_quiz_gate } = req.body;
-    
+
     await Option.findOneAndUpdate({ key: 'bbg_email' }, { value: bbg_email }, { upsert: true });
     await Option.findOneAndUpdate({ key: 'bbg_email_on_submit' }, { value: bbg_email_on_submit ? '1' : '0' }, { upsert: true });
     await Option.findOneAndUpdate({ key: 'bbg_quiz_gate' }, { value: bbg_quiz_gate ? '1' : '0' }, { upsert: true });
-    
+
     res.json({ success: true, message: 'Settings saved' });
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -2369,7 +2357,7 @@ function startSelfPing() {
   const PING_URL = `${HOST_URL}/api/health`;
 
   console.log(`[Self-Ping] Initialized keep-alive job. URL: ${PING_URL}, Interval: 5 mins`);
-  
+
   setInterval(() => {
     https.get(PING_URL, (res) => {
       console.log(`[Self-Ping] Sent GET request to Keep-Alive. Status Code: ${res.statusCode}`);
@@ -2395,9 +2383,9 @@ mongoose.connect(MONGODB_URI)
       await usersCollection.updateMany({ email: null }, { $unset: { email: "" } });
 
       // Drop indexes (if they exist) so Mongoose can recreate them with the sparse: true option
-      await usersCollection.dropIndex('username_1').catch(() => {});
-      await usersCollection.dropIndex('firebaseUid_1').catch(() => {});
-      
+      await usersCollection.dropIndex('username_1').catch(() => { });
+      await usersCollection.dropIndex('firebaseUid_1').catch(() => { });
+
       console.log('Successfully cleaned up null indexes in MongoDB users collection.');
     } catch (indexErr) {
       console.error('Error during index configuration cleanup:', indexErr.message);
