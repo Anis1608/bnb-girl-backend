@@ -7,6 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const morgan = require('morgan');
+const nodemailer = require('nodemailer');
 
 // Load environment config
 dotenv.config();
@@ -21,6 +22,7 @@ const Resource = require('./models/Resource');
 const Mentor = require('./models/Mentor');
 const Submission = require('./models/Submission');
 const SpecializedField = require('./models/SpecializedField');
+const MentorApplication = require('./models/MentorApplication');
 
 // Load Auth Middleware
 const auth = require('./middleware/auth');
@@ -46,6 +48,45 @@ if (isCloudinaryConfigured) {
 } else {
   console.warn('WARNING: Cloudinary credentials (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET) are not defined in .env. Uploads will fallback to local disk storage.');
 }
+
+// Helper to send emails using nodemailer/SMTP
+const sendEmail = async ({ to, subject, text, html }) => {
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPass = process.env.SMTP_PASS;
+  const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+  const smtpPort = parseInt(process.env.SMTP_PORT || '587');
+
+  if (!smtpUser || !smtpPass) {
+    console.warn(`WARNING: SMTP_USER and/or SMTP_PASS not defined in .env. Skipping email sending to ${to}. Subject: ${subject}`);
+    return { success: false, message: 'SMTP credentials not configured' };
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass
+      }
+    });
+
+    const info = await transporter.sendMail({
+      from: `"Bold & Brilliant Girls" <${smtpUser}>`,
+      to,
+      subject,
+      text,
+      html
+    });
+
+    console.log(`[Email Sent] Message ID: ${info.messageId} to ${to}`);
+    return { success: true, messageId: info.messageId };
+  } catch (err) {
+    console.error(`[Email Error] Failed to send email to ${to}:`, err);
+    return { success: false, error: err.message };
+  }
+};
 
 const PORT = process.env.PORT || 5002;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bbg-platform';
@@ -545,6 +586,108 @@ app.post('/api/quiz', (req, res) => submitForm('quiz', req, res));
 app.post('/api/mentorship', (req, res) => submitForm('mentorship', req, res));
 app.post('/api/guest-apply', (req, res) => submitForm('guest_apply', req, res));
 app.post('/api/mentor-apply', (req, res) => submitForm('mentor_apply', req, res));
+
+// Public endpoint for submitting a mentor application with optional photo upload
+app.post('/api/mentor-application', upload.single('photo'), async (req, res) => {
+  try {
+    const { name, email, role, organisation, linkedin, expertise, bio, motivation, years_exp } = req.body;
+
+    if (!name || !email) {
+      return res.status(400).json({ success: false, message: 'Name and Email are required' });
+    }
+
+    let photoUrl = '';
+    if (req.file) {
+      if (isCloudinaryConfigured) {
+        // Upload to Cloudinary
+        const result = await cloudinary.uploader.upload(req.file.path, {
+          resource_type: 'auto',
+          folder: 'bbg_mentors'
+        });
+        fs.unlinkSync(req.file.path);
+        photoUrl = result.secure_url;
+      } else {
+        // Local storage fallback
+        photoUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+      }
+    }
+
+    const application = new MentorApplication({
+      name,
+      email,
+      role: role || '',
+      organisation: organisation || '',
+      linkedin: linkedin || '',
+      expertise: expertise || '',
+      bio: bio || '',
+      motivation: motivation || '',
+      years_exp: years_exp || '',
+      photo: photoUrl,
+      status: 'pending'
+    });
+
+    await application.save();
+
+    // Send email notification to admin & applicant (non-blocking)
+    const adminEmail = process.env.ADMIN_EMAIL || 'sanah@bnbgirl.com';
+    
+    // Notification to admin
+    sendEmail({
+      to: adminEmail,
+      subject: `New Mentor Application: ${name}`,
+      text: `Hello,\n\nYou have received a new mentor application from ${name} (${email}).\nRole: ${role}\nOrganisation: ${organisation}\nLinkedIn: ${linkedin}\n\nReview it in the admin panel.`,
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #6C5DD3;">New Mentor Application</h2>
+          <p>You have received a new mentor application.</p>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+            <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; width: 150px;">Name</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${name}</td></tr>
+            <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Email</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${email}</td></tr>
+            <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Role/Job Title</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${role || 'N/A'}</td></tr>
+            <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Organisation</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${organisation || 'N/A'}</td></tr>
+            <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">LinkedIn</td><td style="padding: 8px; border-bottom: 1px solid #eee;"><a href="${linkedin}">${linkedin}</a></td></tr>
+            <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Years Exp</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${years_exp || 'N/A'}</td></tr>
+            <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">Expertise</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${expertise || 'N/A'}</td></tr>
+          </table>
+          <p style="margin-top: 20px;"><a href="https://bnbgirl.com/admin" style="background-color: #6C5DD3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Go to Admin Panel</a></p>
+        </div>
+      `
+    });
+
+    // Confirmation to applicant
+    sendEmail({
+      to: email,
+      subject: `Your Mentor Application - Bold & Brilliant Girls`,
+      text: `Hello ${name},\n\nThank you for applying to become a mentor on Bold & Brilliant Girls!\n\nWe have received your application and our team will review it. We will notify you once a decision has been made.\n\nBest regards,\nBold & Brilliant Girls Team`,
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
+          <h2 style="color: #6C5DD3; text-align: center;">Thank You, ${name}!</h2>
+          <p>Thank you for applying to become a mentor on the <strong>Bold & Brilliant Girls</strong> platform!</p>
+          <p>We are thrilled that you want to share your expertise and help empower the next generation of girls in tech and leadership.</p>
+          <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <strong style="color: #555;">Next Steps:</strong>
+            <ul style="padding-left: 20px; margin-top: 10px; line-height: 1.5;">
+              <li>Our team will review your application details.</li>
+              <li>We will verify your LinkedIn profile and professional experience.</li>
+              <li>You will receive an email from us with our decision and next steps within 3-5 business days.</li>
+            </ul>
+          </div>
+          <p>If you have any questions in the meantime, feel free to reply directly to this email.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+          <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} Bold & Brilliant Girls. All rights reserved.</p>
+        </div>
+      `
+    });
+
+    res.json({ success: true, message: 'Application submitted successfully!', data: application });
+  } catch (err) {
+    console.error('Mentor application error:', err);
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({ success: false, message: 'Server error: ' + err.message });
+  }
+});
 
 // 8.5 POST /api/create-checkout-session - Stripe Checkout Session creation (Secure Rates lookup)
 app.post('/api/create-checkout-session', async (req, res) => {
@@ -1097,6 +1240,137 @@ app.delete('/api/admin/mentors/:id', auth, async (req, res) => {
     const m = await Mentor.findByIdAndDelete(req.params.id);
     if (!m) return res.status(404).json({ message: 'Mentor not found' });
     res.json({ success: true, message: 'Mentor deleted' });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// MENTOR APPLICATIONS CRUD
+app.get('/api/admin/mentor-applications', auth, async (req, res) => {
+  try {
+    const apps = await MentorApplication.find().sort({ created_at: -1 });
+    res.json(apps);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.put('/api/admin/mentor-applications/:id/accept', auth, async (req, res) => {
+  try {
+    const appRecord = await MentorApplication.findById(req.params.id);
+    if (!appRecord) {
+      return res.status(404).json({ message: 'Mentor application not found' });
+    }
+    
+    if (appRecord.status === 'accepted') {
+      return res.status(400).json({ message: 'Application is already accepted' });
+    }
+
+    appRecord.status = 'accepted';
+    await appRecord.save();
+
+    // Create a Mentor record in the DB
+    const newMentor = new Mentor({
+      name: appRecord.name,
+      role: appRecord.role,
+      photo: appRecord.photo,
+      bio: appRecord.bio,
+      linkedin: appRecord.linkedin,
+      expertise_areas: appRecord.expertise,
+      status: 'published'
+    });
+    await newMentor.save();
+
+    // Send email to applicant
+    sendEmail({
+      to: appRecord.email,
+      subject: '🎉 Congratulations! Your mentorship application has been accepted!',
+      text: `Hello ${appRecord.name},\n\nWe are delighted to inform you that your mentor application has been accepted!\n\nYour profile has been created and is now live on the Bold & Brilliant Girls platform. You can find your profile under the mentorship directory.\n\nThank you for joining us to empower young girls!\n\nBest regards,\nBold & Brilliant Girls Team`,
+      html: `
+        <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <span style="font-size: 48px;">🎉</span>
+          </div>
+          <h2 style="color: #6C5DD3; text-align: center; margin-top: 10px;">Application Accepted!</h2>
+          <p>Dear <strong>${appRecord.name}</strong>,</p>
+          <p>We are absolutely thrilled to inform you that your application to become a mentor on the <strong>Bold & Brilliant Girls</strong> platform has been <strong>accepted</strong>!</p>
+          <p>Your professional profile is now live in our mentor directory, making it visible to students and young girls looking for guidance, inspiration, and mentorship.</p>
+          
+          <div style="background-color: #f7fafc; border-left: 4px solid #6C5DD3; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+            <p style="margin: 0; font-weight: bold; color: #4a5568;">Your Mentor Profile Details:</p>
+            <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #4a5568; line-height: 1.6;">
+              <li><strong>Name:</strong> ${appRecord.name}</li>
+              <li><strong>Role:</strong> ${appRecord.role || 'N/A'}</li>
+              <li><strong>Expertise:</strong> ${appRecord.expertise || 'N/A'}</li>
+            </ul>
+          </div>
+
+          <p>Students will now be able to view your background and book interactive sessions with you based on your availability.</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="https://bnbgirl.com/mentorship" style="background-color: #6C5DD3; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Mentor Directory</a>
+          </div>
+
+          <p>Thank you for your commitment to fostering and empowering the next generation of female leaders and innovators. We are honored to have you on board!</p>
+          
+          <hr style="border: 0; border-top: 1px solid #edf2f7; margin: 25px 0;" />
+          <p style="font-size: 12px; color: #a0aec0; text-align: center;">&copy; ${new Date().getFullYear()} Bold & Brilliant Girls. All rights reserved.</p>
+        </div>
+      `
+    });
+
+    res.json({ success: true, message: 'Application accepted and Mentor profile created', data: appRecord, mentor: newMentor });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.put('/api/admin/mentor-applications/:id/reject', auth, async (req, res) => {
+  try {
+    const appRecord = await MentorApplication.findById(req.params.id);
+    if (!appRecord) {
+      return res.status(404).json({ message: 'Mentor application not found' });
+    }
+
+    if (appRecord.status === 'rejected') {
+      return res.status(400).json({ message: 'Application is already rejected' });
+    }
+
+    appRecord.status = 'rejected';
+    await appRecord.save();
+
+    // Send polite rejection email
+    sendEmail({
+      to: appRecord.email,
+      subject: 'Update on your mentorship application - Bold & Brilliant Girls',
+      text: `Hello ${appRecord.name},\n\nThank you for your application and interest in becoming a mentor on Bold & Brilliant Girls.\n\nAfter careful consideration, we regret to inform you that we are unable to accept your application at this time. We received a high volume of applications and had to make some very difficult decisions.\n\nWe appreciate your time, effort, and interest in our mission. We wish you the very best in your professional endeavors.\n\nBest regards,\nBold & Brilliant Girls Team`,
+      html: `
+        <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <h2 style="color: #4a5568; text-align: center;">Mentor Application Update</h2>
+          <p>Dear <strong>${appRecord.name}</strong>,</p>
+          <p>Thank you for submitting your application to become a mentor on the <strong>Bold & Brilliant Girls</strong> platform.</p>
+          <p>After careful review of your application and background, we regret to inform you that we are unable to accept your application at this time. We receive many applications from outstanding professionals, and we have to make difficult choices to keep our current mentor cohort balanced across various domains and experience levels.</p>
+          <p>Please note that this decision does not reflect on your professional achievements or qualifications. We highly appreciate your willingness to support young girls in their tech and career journeys.</p>
+          <p>We will keep your details on file and may reach out in the future as our mentoring needs evolve.</p>
+          <p>Thank you again for your time, effort, and interest in our mission. We wish you all the best in your professional endeavors.</p>
+          
+          <hr style="border: 0; border-top: 1px solid #edf2f7; margin: 25px 0;" />
+          <p style="font-size: 12px; color: #a0aec0; text-align: center;">&copy; ${new Date().getFullYear()} Bold & Brilliant Girls. All rights reserved.</p>
+        </div>
+      `
+    });
+
+    res.json({ success: true, message: 'Application rejected', data: appRecord });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete('/api/admin/mentor-applications/:id', auth, async (req, res) => {
+  try {
+    const appRecord = await MentorApplication.findByIdAndDelete(req.params.id);
+    if (!appRecord) return res.status(404).json({ message: 'Mentor application not found' });
+    res.json({ success: true, message: 'Mentor application deleted' });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
