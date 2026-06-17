@@ -16,6 +16,7 @@ const SpecializedField = require('./models/SpecializedField');
 const Episode = require('./models/Episode');
 const Resource = require('./models/Resource');
 const Mentor = require('./models/Mentor');
+const Submission = require('./models/Submission');
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bbg-platform';
 
@@ -35,6 +36,7 @@ async function seed() {
     await Episode.deleteMany({});
     await Resource.deleteMany({});
     await Mentor.deleteMany({});
+    await Submission.deleteMany({ form_type: 'mentorship' });
     console.log('Cleared!');
 
     // 2. Seed Default Admin User
@@ -614,10 +616,15 @@ async function seed() {
       }
     ];
 
+    const mentorMap = {};
     for (const m of mentorsData) {
       const catId = categoryMap[m.catSlug] || null;
-      await Mentor.create({
+      const email = `${m.name.toLowerCase().replace(/\s+/g, '')}@bnbgirl.com`;
+      const password = 'password123';
+      const dbMentor = await Mentor.create({
         name: m.name,
+        email,
+        password,
         role: m.role,
         photo: m.photo,
         bio: m.bio,
@@ -632,8 +639,72 @@ async function seed() {
         busy: m.busy,
         status: 'published'
       });
+      mentorMap[m.name] = dbMentor._id;
     }
     console.log('Mentors seeded!');
+
+    console.log('Seeding mock mentorship bookings...');
+    const priyaId = mentorMap['Priya Sharma'];
+    const vanyaId = mentorMap['Vanya Mehta'];
+
+    if (priyaId) {
+      await Submission.create({
+        form_type: 'mentorship',
+        data: {
+          mentor: 'Priya Sharma',
+          mentor_id: String(priyaId),
+          duration: '30',
+          date: '2026-06-25',
+          time: '09:30',
+          email: 'student1@example.com',
+          amount: '$20',
+          meet_link: 'https://meet.google.com/abc-defg-hij',
+          goals: 'Looking to transition from QA to Product Management. Need resume review and strategy.',
+          submitted_at: new Date().toISOString()
+        }
+      });
+
+      await Submission.create({
+        form_type: 'mentorship',
+        data: {
+          mentor: 'Priya Sharma',
+          mentor_id: String(priyaId),
+          duration: '60',
+          date: '2026-06-28',
+          time: '14:00',
+          email: 'student2@example.com',
+          amount: '$36',
+          meet_link: 'https://meet.google.com/xyz-pdqr-lmn',
+          goals: 'Need salary negotiation tips for a Senior PM offer at Amazon.',
+          reschedule_request: {
+            status: 'pending',
+            date: '2026-06-29',
+            time: '10:00',
+            submitted_at: new Date().toISOString()
+          },
+          submitted_at: new Date().toISOString()
+        }
+      });
+    }
+
+    if (vanyaId) {
+      await Submission.create({
+        form_type: 'mentorship',
+        data: {
+          mentor: 'Vanya Mehta',
+          mentor_id: String(vanyaId),
+          duration: '60',
+          date: '2026-06-26',
+          time: '10:30',
+          email: 'founder_hopeful@example.com',
+          amount: '$36',
+          meet_link: 'https://meet.google.com/mno-pqrs-tuv',
+          goals: 'Demystifying fundraising strategy for our pre-seed stage fintech SaaS.',
+          submitted_at: new Date().toISOString()
+        }
+      });
+    }
+    console.log('Mock mentorship bookings seeded!');
 
     console.log('Seeding completed successfully!');
     process.exit(0);

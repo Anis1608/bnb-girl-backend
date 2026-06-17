@@ -687,8 +687,83 @@ const submitForm = async (formType, req, res) => {
     // Send notifications if setting is enabled (in real production this would use nodemailer)
     const emailOpt = await Option.findOne({ key: 'bbg_email_on_submit' });
     const notifyEmail = await Option.findOne({ key: 'bbg_email' });
-    if (emailOpt?.value === '1' && notifyEmail?.value) {
-      console.log(`[Email Notification Sent to ${notifyEmail.value}] New submission for ${formType}`);
+    const adminEmailAddress = notifyEmail?.value || 'sanah@bnbgirl.com';
+
+    if (emailOpt?.value === '1' && adminEmailAddress) {
+      console.log(`[Email Notification Sent to ${adminEmailAddress}] New submission for ${formType}`);
+    }
+
+    // Special Email Handlers for Newsletter Subscription ('community')
+    if (formType === 'community' && data.email) {
+      const origin = req.headers.origin || 'https://bnbgirl.com';
+      const unsubscribeLink = `${origin}/unsubscribe?email=${encodeURIComponent(data.email)}`;
+
+      // 1. Welcome email to subscriber
+      const subscriberHtml = `
+        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 30px; color: #1f2937; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 16px; background-color: #ffffff; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);">
+          <div style="text-align: center; margin-bottom: 25px;">
+            <h1 style="color: #db2777; font-size: 28px; font-weight: 800; margin: 0; letter-spacing: -0.025em;">Bold &amp; Brilliant Girls</h1>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 5px;">Empowering the next generation of female leaders</p>
+          </div>
+          <hr style="border: 0; border-top: 1px solid #f3f4f6; margin-bottom: 25px;" />
+          <h2 style="color: #111827; font-size: 20px; font-weight: 700; margin-top: 0;">Welcome to the Community! ✨</h2>
+          <p style="font-size: 16px; line-height: 1.6; color: #4b5563;">Thank you for subscribing to Bold &amp; Brilliant Girls. You are now officially part of our global network of ambitious young women, creators, and mentors!</p>
+          <div style="background: linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%); border-left: 4px solid #db2777; padding: 20px; margin: 25px 0; border-radius: 8px;">
+            <h3 style="margin: 0 0 10px 0; font-size: 16px; font-weight: 700; color: #9d174d;">What's next?</h3>
+            <ul style="margin: 0; padding-left: 20px; color: #9d174d; font-size: 14px; line-height: 1.6;">
+              <li>Get the weekly <strong>Tip of the Week</strong> email newsletter.</li>
+              <li>Gain access to exclusive premium templates, guide sheets, and career resources.</li>
+              <li>Connect with world-class industry mentors through our dashboard.</li>
+            </ul>
+          </div>
+          <p style="font-size: 15px; line-height: 1.6; color: #4b5563;">We're thrilled to have you with us on this journey. Stay tuned for our upcoming resources and masterclasses.</p>
+          <p style="font-size: 14px; line-height: 1.6; color: #6b7280; text-align: center; margin-top: 20px;">
+            If you ever wish to opt out, you can <a href="${unsubscribeLink}" style="color: #db2777; text-decoration: underline; font-weight: bold;">unsubscribe here</a> at any time.
+          </p>
+          <div style="text-align: center; margin-top: 30px;">
+            <a href="https://bnbgirl.com/dashboard" style="display: inline-block; background-color: #db2777; color: #ffffff; padding: 12px 24px; font-weight: bold; border-radius: 9999px; text-decoration: none; font-size: 15px; box-shadow: 0 4px 6px -1px rgba(219, 39, 119, 0.2);">Explore Your Dashboard</a>
+          </div>
+          <hr style="border: 0; border-top: 1px solid #f3f4f6; margin-top: 35px; margin-bottom: 15px;" />
+          <p style="font-size: 12px; color: #9ca3af; text-align: center; margin: 0;">You received this because you subscribed on our website. You can <a href="${unsubscribeLink}" style="color: #db2777; text-decoration: underline;">unsubscribe</a> at any time.</p>
+          <p style="font-size: 12px; color: #9ca3af; text-align: center; margin: 5px 0 0 0;">&copy; 2026 Bold &amp; Brilliant Girls. All rights reserved.</p>
+        </div>
+      `;
+
+      await sendEmail({
+        to: data.email,
+        subject: 'Welcome to the Bold & Brilliant Girls Community! ✨',
+        text: `Welcome to Bold & Brilliant Girls!\n\nThank you for subscribing to our newsletter. You are now part of our community of leaders.\n\nExplore your dashboard: https://bnbgirl.com/dashboard\n\nUnsubscribe: ${unsubscribeLink}`,
+        html: subscriberHtml
+      });
+
+      // 2. Notification email to admin
+      const adminHtml = `
+        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 30px; color: #1f2937; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 16px; background-color: #ffffff; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);">
+          <div style="text-align: center; margin-bottom: 25px;">
+            <h2 style="color: #6366f1; font-size: 22px; font-weight: 800; margin: 0;">New Newsletter Subscriber! 🎉</h2>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 5px;">Bold &amp; Brilliant Girls Admin Notification</p>
+          </div>
+          <hr style="border: 0; border-top: 1px solid #f3f4f6; margin-bottom: 25px;" />
+          <div style="background-color: #f5f3ff; border-left: 4px solid #6366f1; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <p style="margin: 0; font-size: 15px; color: #4338ca;"><strong>Subscriber Email:</strong> <span style="text-decoration: underline;">${data.email}</span></p>
+            <p style="margin: 5px 0 0 0; font-size: 14px; color: #6366f1;"><strong>IP Address:</strong> ${ip || 'Unknown'}</p>
+            <p style="margin: 5px 0 0 0; font-size: 14px; color: #6366f1;"><strong>Date/Time:</strong> ${new Date().toLocaleString()}</p>
+          </div>
+          <p style="font-size: 15px; line-height: 1.6; color: #4b5563;">This user signed up for the newsletter on the website. Their record has been saved in the Submissions database as a <code>community</code> submission.</p>
+          <div style="text-align: center; margin-top: 25px;">
+            <a href="https://bnbgirl.com/admin" style="display: inline-block; background-color: #6366f1; color: #ffffff; padding: 10px 20px; font-weight: bold; border-radius: 8px; text-decoration: none; font-size: 14px;">View in Admin Portal</a>
+          </div>
+          <hr style="border: 0; border-top: 1px solid #f3f4f6; margin-top: 30px; margin-bottom: 15px;" />
+          <p style="font-size: 12px; color: #9ca3af; text-align: center; margin: 0;">&copy; 2026 Bold &amp; Brilliant Girls. Admin System.</p>
+        </div>
+      `;
+
+      await sendEmail({
+        to: adminEmailAddress,
+        subject: `New Newsletter Subscriber Joined: ${data.email} 🎉`,
+        text: `New subscriber email: ${data.email}\nIP: ${ip}\nDate: ${new Date().toLocaleString()}`,
+        html: adminHtml
+      });
     }
 
     res.json({ success: true, message: 'Received!' });
@@ -706,6 +781,27 @@ app.post('/api/quiz', (req, res) => submitForm('quiz', req, res));
 app.post('/api/mentorship', (req, res) => submitForm('mentorship', req, res));
 app.post('/api/guest-apply', (req, res) => submitForm('guest_apply', req, res));
 app.post('/api/mentor-apply', (req, res) => submitForm('mentor_apply', req, res));
+
+// Public endpoint for unsubscribing from newsletter/community submissions (CAN-SPAM compliance)
+app.post('/api/unsubscribe', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    const result = await Submission.updateMany(
+      { "data.email": email },
+      { $set: { "data.unsubscribed": true, "status": "unsubscribed" } }
+    );
+
+    console.log(`[Unsubscribe Success] Email: ${email}. Matches updated: ${result.modifiedCount}`);
+    res.json({ success: true, message: 'Unsubscribed successfully.' });
+  } catch (err) {
+    console.error('[Unsubscribe Error]', err);
+    res.status(500).json({ success: false, message: 'Internal server error processing unsubscribe.' });
+  }
+});
 
 // Public endpoint for submitting a mentor application with optional photo upload
 app.post('/api/mentor-application', upload.single('photo'), async (req, res) => {
