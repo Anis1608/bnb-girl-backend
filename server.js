@@ -50,7 +50,7 @@ if (isCloudinaryConfigured) {
 }
 
 // Helper to send emails using nodemailer/SMTP
-const sendEmail = async ({ to, subject, text, html }) => {
+const sendEmail = async ({ to, subject, text, html, attachments }) => {
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
   const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
@@ -77,7 +77,8 @@ const sendEmail = async ({ to, subject, text, html }) => {
       to,
       subject,
       text,
-      html
+      html,
+      attachments
     });
 
     console.log(`[Email Sent] Message ID: ${info.messageId} to ${to}`);
@@ -87,6 +88,50 @@ const sendEmail = async ({ to, subject, text, html }) => {
     return { success: false, error: err.message };
   }
 };
+
+// Generate a random Google Meet link
+function generateMeetLink() {
+  const part1 = Math.random().toString(36).slice(2, 5);
+  const part2 = Math.random().toString(36).slice(2, 6);
+  const part3 = Math.random().toString(36).slice(2, 5);
+  return `https://meet.google.com/${part1}-${part2}-${part3}`;
+}
+
+// Generate standard .ics calendar invite string
+function generateIcsFile({ start, end, summary, description, location }) {
+  const formatIcsDate = (date) => {
+    return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  };
+
+  const dtStart = formatIcsDate(start);
+  const dtEnd = formatIcsDate(end);
+  const dtStamp = formatIcsDate(new Date());
+
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Bold and Brilliant Girls//Mentorship Scheduler//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:REQUEST',
+    'BEGIN:VEVENT',
+    `UID:${Math.random().toString(36).slice(2)}@bnbgirl.com`,
+    `DTSTAMP:${dtStamp}`,
+    `DTSTART:${dtStart}`,
+    `DTEND:${dtEnd}`,
+    `SUMMARY:${summary}`,
+    `DESCRIPTION:${description.replace(/\n/g, '\\n')}`,
+    `LOCATION:${location}`,
+    'STATUS:CONFIRMED',
+    'SEQUENCE:0',
+    'BEGIN:VALARM',
+    'TRIGGER:-PT15M',
+    'ACTION:DISPLAY',
+    'DESCRIPTION:Reminder',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+}
 
 const PORT = process.env.PORT || 5002;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/bbg-platform';
@@ -103,6 +148,9 @@ app.use(cors());
 app.use(express.json());
 // Serve uploads folder as static files
 app.use('/uploads', express.static(uploadsDir));
+
+// Mount Mentor Router
+app.use('/api/mentor', require('./routes/mentor'));
 
 // Multer Storage Configuration
 const storage = multer.diskStorage({
@@ -456,6 +504,77 @@ app.get('/api/mentors', async (req, res) => {
   }
 });
 
+// 6.5 GET /api/mentors/:id/availability - Dynamic timeslot availability on a selected date
+app.get('/api/mentors/:id/availability', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date } = req.query; // YYYY-MM-DD format
+
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Date parameter is required (YYYY-MM-DD)' });
+    }
+
+    // 1. Find all paid/reviewed bookings for this mentor on the selected date (excluding spam status)
+    const bookings = await Submission.find({
+      form_type: 'mentorship',
+      status: { $ne: 'spam' },
+      $or: [
+        { 'data.mentor_id': id },
+        { 'data.mentor_id': String(id) }
+      ],
+      'data.date': date
+    });
+
+    const toMinutes = (timeStr) => {
+      const [h, m] = timeStr.split(':').map(Number);
+      return h * 60 + m;
+    };
+
+    // Calculate all blocked minute ranges
+    const blockedRanges = bookings.map(b => {
+      const startMins = toMinutes(b.data.time);
+      const duration = parseInt(b.data.duration) || 30;
+      return { start: startMins, end: startMins + duration };
+    });
+
+    // Standard default slots for the mentor (or default ones if not customized)
+    let slots = ["09:00", "09:30", "10:00", "11:00", "11:30", "14:00", "14:30", "15:00", "16:00", "16:30"];
+    let busySlots = ["11:00", "15:00"];
+
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      const mentor = await Mentor.findById(id);
+      if (mentor) {
+        if (mentor.slots && mentor.slots.length > 0) slots = mentor.slots;
+        if (mentor.busy) busySlots = mentor.busy;
+      } else {
+        const ep = await Episode.findById(id);
+        if (ep) {
+          if (ep.slots && ep.slots.length > 0) slots = ep.slots;
+          if (ep.busy) busySlots = ep.busy;
+        }
+      }
+    }
+
+    // Identify which slots from the mentor's potential slots list overlap with booked ranges
+    const bookedSlots = slots.filter(slot => {
+      const slotMins = toMinutes(slot);
+      return blockedRanges.some(range => slotMins >= range.start && slotMins < range.end);
+    });
+
+    // Combine statically busy slots + dynamically booked slots
+    const allBlockedSlots = Array.from(new Set([...busySlots, ...bookedSlots]));
+
+    res.json({
+      success: true,
+      bookedSlots: allBlockedSlots,
+      onlyBooked: bookedSlots,
+      onlyStatic: busySlots
+    });
+  } catch (err) {
+    console.error('Error calculating mentor availability:', err);
+    res.status(500).json({ success: false, message: 'Internal server error calculating availability', error: err.message });
+  }
+});
 
 // 7. GET /api/resources - Resources list with filters
 app.get('/api/resources', async (req, res) => {
@@ -877,6 +996,10 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
     }
 
     if (!submission) {
+      // 1. Generate Google Meet link
+      const meetLink = generateMeetLink();
+      bookingData.meet_link = meetLink;
+
       submission = new Submission({
         form_type: 'mentorship',
         data: bookingData,
@@ -884,6 +1007,113 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
       });
       await submission.save();
       console.log('Mentorship booking recorded from checkout session payment:', sessionId);
+
+      // 2. Fetch Mentor Email if possible
+      let mentorEmail = '';
+      if (bookingData.mentor_id && mongoose.Types.ObjectId.isValid(bookingData.mentor_id)) {
+        const dbMentor = await Mentor.findById(bookingData.mentor_id);
+        if (dbMentor && dbMentor.email) {
+          mentorEmail = dbMentor.email;
+        }
+      }
+
+      // 3. Create ICS invitation
+      const dateParts = bookingData.date.split('-');
+      const timeParts = bookingData.time.split(':');
+      const startTime = new Date(
+        parseInt(dateParts[0]),
+        parseInt(dateParts[1]) - 1,
+        parseInt(dateParts[2]),
+        parseInt(timeParts[0]),
+        parseInt(timeParts[1]),
+        0
+      );
+      const durationMinutes = parseInt(bookingData.duration) || 30;
+      const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+
+      const icsContent = generateIcsFile({
+        start: startTime,
+        end: endTime,
+        summary: `Mentorship Session: ${bookingData.mentor} & Student`,
+        description: `Your interactive mentorship session of ${bookingData.duration} minutes has been scheduled.\nGoogle Meet Link: ${meetLink}`,
+        location: meetLink
+      });
+
+      const inviteAttachment = {
+        filename: 'invite.ics',
+        content: icsContent,
+        contentType: 'text/calendar; charset=utf-8; method=REQUEST'
+      };
+
+      // 4. Send email to Student
+      const studentHtml = `
+        <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+          <h2 style="color: #EC4899; text-align: center;">Your Mentorship Session is Confirmed!</h2>
+          <p>Hi there,</p>
+          <p>Thank you for booking a session. Your payment was successful, and your mentorship meeting has been scheduled automatically.</p>
+          
+          <div style="background-color: #fdf2f8; border-left: 4px solid #EC4899; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+            <p style="margin: 0; font-weight: bold; color: #9d174d;">Meeting Details:</p>
+            <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #9d174d; line-height: 1.6;">
+              <li><strong>Mentor:</strong> ${bookingData.mentor}</li>
+              <li><strong>Date:</strong> ${bookingData.date}</li>
+              <li><strong>Time:</strong> ${bookingData.time}</li>
+              <li><strong>Duration:</strong> ${bookingData.duration} minutes</li>
+              <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #be185d; font-weight: bold;">Join Google Meet</a></li>
+            </ul>
+          </div>
+          <p>We've attached a calendar invite (<code>invite.ics</code>) to this email. You can open it to add this event directly to your calendar.</p>
+          <p>Enjoy your session!</p>
+          <hr style="border: 0; border-top: 1px solid #edf2f7; margin: 25px 0;" />
+          <p style="font-size: 12px; color: #a0aec0; text-align: center;">&copy; Bold & Brilliant Girls. All rights reserved.</p>
+        </div>
+      `;
+
+      if (bookingData.email) {
+        await sendEmail({
+          to: bookingData.email,
+          subject: `Confirmed: Mentorship Session with ${bookingData.mentor}`,
+          text: `Hi there,\n\nYour mentorship session with ${bookingData.mentor} is confirmed!\n\nDate: ${bookingData.date}\nTime: ${bookingData.time}\nDuration: ${bookingData.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
+          html: studentHtml,
+          attachments: [inviteAttachment]
+        });
+      }
+
+      // 5. Send email to Mentor
+      const mentorHtml = `
+        <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+          <h2 style="color: #6C5DD3; text-align: center;">New Mentorship Booking Scheduled!</h2>
+          <p>Hello ${bookingData.mentor},</p>
+          <p>You have a new mentorship booking from a student on the Bold & Brilliant Girls platform.</p>
+          
+          <div style="background-color: #f8fafc; border-left: 4px solid #6C5DD3; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+            <p style="margin: 0; font-weight: bold; color: #4338ca;">Booking Details:</p>
+            <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #4338ca; line-height: 1.6;">
+              <li><strong>Student Email:</strong> ${bookingData.email}</li>
+              <li><strong>Date:</strong> ${bookingData.date}</li>
+              <li><strong>Time:</strong> ${bookingData.time}</li>
+              <li><strong>Duration:</strong> ${bookingData.duration} minutes</li>
+              <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #4338ca; font-weight: bold;">Join Google Meet</a></li>
+            </ul>
+          </div>
+          <p>We've attached a calendar invite (<code>invite.ics</code>) to this email. Please open it to add the session to your calendar.</p>
+          <p>Thank you for mentoring!</p>
+          <hr style="border: 0; border-top: 1px solid #edf2f7; margin: 25px 0;" />
+          <p style="font-size: 12px; color: #a0aec0; text-align: center;">&copy; Bold & Brilliant Girls. All rights reserved.</p>
+        </div>
+      `;
+
+      if (mentorEmail) {
+        await sendEmail({
+          to: mentorEmail,
+          subject: `New Booking: Mentorship Session with Student`,
+          text: `Hello ${bookingData.mentor},\n\nYou have a new booking from a student (${bookingData.email})!\n\nDate: ${bookingData.date}\nTime: ${bookingData.time}\nDuration: ${bookingData.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
+          html: mentorHtml,
+          attachments: [inviteAttachment]
+        });
+      }
+    } else {
+      bookingData = submission.data;
     }
 
     res.json({ success: true, booking: bookingData });
@@ -1054,6 +1284,124 @@ app.get('/api/user/bookings', userAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Server error fetching bookings' });
+  }
+});
+
+// PUT /api/user/bookings/:id/reschedule-request - Customer requests a reschedule
+app.put('/api/user/bookings/:id/reschedule-request', userAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date, time } = req.body;
+    const email = req.user.email;
+
+    if (!date || !time) {
+      return res.status(400).json({ success: false, message: 'Date and time are required for rescheduling.' });
+    }
+
+    const booking = await Submission.findById(id);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found.' });
+    }
+
+    // Security check: Verify owner
+    if (booking.data.email !== email) {
+      return res.status(403).json({ success: false, message: 'Unauthorized access to this booking.' });
+    }
+
+    // Availability validation check
+    const toMinutes = (timeStr) => {
+      const [h, m] = timeStr.split(':').map(Number);
+      return h * 60 + m;
+    };
+
+    const requestedStart = toMinutes(time);
+    const duration = parseInt(booking.data.duration) || 30;
+    const requestedEnd = requestedStart + duration;
+
+    // Check overlaps on that date (excluding this booking itself)
+    const otherBookings = await Submission.find({
+      _id: { $ne: booking._id },
+      form_type: 'mentorship',
+      status: { $ne: 'spam' },
+      $or: [
+        { 'data.mentor_id': booking.data.mentor_id },
+        { 'data.mentor_id': String(booking.data.mentor_id) }
+      ],
+      'data.date': date
+    });
+
+    const hasOverlap = otherBookings.some(b => {
+      const startMins = toMinutes(b.data.time);
+      const dur = parseInt(b.data.duration) || 30;
+      const endMins = startMins + dur;
+      return (requestedStart >= startMins && requestedStart < endMins) ||
+             (requestedEnd > startMins && requestedEnd <= endMins) ||
+             (requestedStart <= startMins && requestedEnd >= endMins);
+    });
+
+    if (hasOverlap) {
+      return res.status(400).json({ success: false, message: 'The requested time slot overlaps with another booking. Please select another slot.' });
+    }
+
+    // Check if slot falls in static busy blocks
+    let isStaticBusy = false;
+    if (mongoose.Types.ObjectId.isValid(booking.data.mentor_id)) {
+      const mentor = await Mentor.findById(booking.data.mentor_id);
+      if (mentor && mentor.busy && mentor.busy.includes(time)) {
+        isStaticBusy = true;
+      }
+    }
+
+    if (isStaticBusy) {
+      return res.status(400).json({ success: false, message: 'The mentor is unavailable during this time slot. Please select another slot.' });
+    }
+
+    // Update reschedule request status
+    booking.data.reschedule_request = {
+      date,
+      time,
+      status: 'pending',
+      requested_at: new Date().toISOString()
+    };
+    booking.markModified('data');
+    await booking.save();
+
+    // Send email alert to mentor
+    let mentorEmail = '';
+    if (booking.data.mentor_id && mongoose.Types.ObjectId.isValid(booking.data.mentor_id)) {
+      const dbMentor = await Mentor.findById(booking.data.mentor_id);
+      if (dbMentor && dbMentor.email) {
+        mentorEmail = dbMentor.email;
+      }
+    }
+
+    if (mentorEmail) {
+      sendEmail({
+        to: mentorEmail,
+        subject: `Action Required: Reschedule Request for Mentorship with ${booking.data.email}`,
+        text: `Hello,\n\nA student has requested to reschedule their session with you.\n\nOriginal Time: ${booking.data.date} at ${booking.data.time}\nProposed Time: ${date} at ${time}\n\nPlease log in to your Mentor Dashboard to accept or decline this request.`,
+        html: `
+          <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px;">
+            <h2 style="color: #6C5DD3; text-align: center;">Reschedule Request</h2>
+            <p>Hello,</p>
+            <p>A student has submitted a request to reschedule their upcoming mentorship session with you.</p>
+            <div style="background-color: #f8fafc; border-left: 4px solid #6C5DD3; padding: 15px; margin: 20px 0; border-radius: 4px;">
+              <p style="margin: 0 0 8px 0;"><strong>Original Schedule:</strong> ${booking.data.date} at ${booking.data.time}</p>
+              <p style="margin: 0;"><strong>Proposed New Schedule:</strong> <span style="color: #4f46e5; font-weight: bold;">${date} at ${time}</span> (${booking.data.duration} mins)</p>
+            </div>
+            <p>Please log in to your Mentor Dashboard to accept or decline this request.</p>
+            <div style="text-align: center; margin-top: 25px;">
+              <a href="https://bnbgirl.com/mentor-dashboard" style="background-color: #6C5DD3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Go to Mentor Portal</a>
+            </div>
+          </div>
+        `
+      });
+    }
+
+    res.json({ success: true, booking });
+  } catch (err) {
+    console.error('Error requesting reschedule:', err);
+    res.status(500).json({ success: false, message: 'Server error requesting reschedule', error: err.message });
   }
 });
 
@@ -1269,9 +1617,14 @@ app.put('/api/admin/mentor-applications/:id/accept', auth, async (req, res) => {
     appRecord.status = 'accepted';
     await appRecord.save();
 
+    // Generate a temporary password for the mentor login
+    const tempPassword = Math.random().toString(36).slice(-8);
+
     // Create a Mentor record in the DB
     const newMentor = new Mentor({
       name: appRecord.name,
+      email: appRecord.email,
+      password: tempPassword,
       role: appRecord.role,
       photo: appRecord.photo,
       bio: appRecord.bio,
@@ -1281,11 +1634,11 @@ app.put('/api/admin/mentor-applications/:id/accept', auth, async (req, res) => {
     });
     await newMentor.save();
 
-    // Send email to applicant
+    // Send email to applicant with credentials
     sendEmail({
       to: appRecord.email,
       subject: '🎉 Congratulations! Your mentorship application has been accepted!',
-      text: `Hello ${appRecord.name},\n\nWe are delighted to inform you that your mentor application has been accepted!\n\nYour profile has been created and is now live on the Bold & Brilliant Girls platform. You can find your profile under the mentorship directory.\n\nThank you for joining us to empower young girls!\n\nBest regards,\nBold & Brilliant Girls Team`,
+      text: `Hello ${appRecord.name},\n\nWe are delighted to inform you that your mentor application has been accepted!\n\nYour profile has been created and is now live on the Bold & Brilliant Girls platform. You can find your profile under the mentorship directory.\n\nHere are your login credentials to manage your profile and bookings:\n- Login Link: https://bnbgirl.com/mentor-dashboard\n- Email: ${appRecord.email}\n- Temporary Password: ${tempPassword}\n\nThank you for joining us to empower young girls!\n\nBest regards,\nBold & Brilliant Girls Team`,
       html: `
         <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
           <div style="text-align: center; margin-bottom: 20px;">
@@ -1303,6 +1656,16 @@ app.put('/api/admin/mentor-applications/:id/accept', auth, async (req, res) => {
               <li><strong>Role:</strong> ${appRecord.role || 'N/A'}</li>
               <li><strong>Expertise:</strong> ${appRecord.expertise || 'N/A'}</li>
             </ul>
+          </div>
+
+          <div style="background-color: #fef08a; border-left: 4px solid #ca8a04; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+            <p style="margin: 0; font-weight: bold; color: #854d0e;">Your Mentor Portal Credentials:</p>
+            <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #854d0e; line-height: 1.6;">
+              <li><strong>Login Link:</strong> <a href="https://bnbgirl.com/mentor-dashboard" style="color: #ca8a04; text-decoration: underline;">bnbgirl.com/mentor-dashboard</a></li>
+              <li><strong>Email:</strong> ${appRecord.email}</li>
+              <li><strong>Temporary Password:</strong> <code style="background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px;">${tempPassword}</code></li>
+            </ul>
+            <p style="margin: 10px 0 0 0; font-size: 12px; color: #854d0e;">Please log in using these details and update your password in the profile settings.</p>
           </div>
 
           <p>Students will now be able to view your background and book interactive sessions with you based on your availability.</p>
