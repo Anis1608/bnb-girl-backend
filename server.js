@@ -2424,7 +2424,19 @@ const cmsDefaults = {
   cms_series_creative_title: "The Creative Career", cms_series_creative_epcount: "7 Episodes", cms_series_creative_category: "arts", cms_series_creative_youtube: "", cms_series_creative_percentage: "14%",
   cms_series_finance_title: "Corporate & Finance", cms_series_finance_epcount: "5 Episodes", cms_series_finance_category: "finance", cms_series_finance_youtube: "", cms_series_finance_percentage: "0%",
   // Spotlight / This Week's Guest CMS
-  cms_spotlight_mentor_id: ""  // MongoDB _id of the Mentor to feature as "This Week's Guest"
+  cms_spotlight_mentor_id: "",  // MongoDB _id of the Mentor to feature as "This Week's Guest"
+  // Resources Page Hero & Stats
+  cms_resources_hero_eyebrow: "Resource Library",
+  cms_resources_hero_title: "Everything You Need to<br/>Build Your Career",
+  cms_resources_hero_subtitle: "Episode PDFs, career guides, templates, reading lists, salary reports and more — all free, all curated from our guest experts across every field.",
+  cms_resources_stat_resources_num: "48",
+  cms_resources_stat_resources_lbl: "Resources",
+  cms_resources_stat_pdfs_num: "28",
+  cms_resources_stat_pdfs_lbl: "Episode PDFs",
+  cms_resources_stat_fields_num: "8",
+  cms_resources_stat_fields_lbl: "Career Fields",
+  cms_resources_stat_templates_num: "12",
+  cms_resources_stat_templates_lbl: "Templates"
 };
 
 const seedCmsDefaults = async () => {
