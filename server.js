@@ -90,12 +90,132 @@ const sendEmail = async ({ to, subject, text, html, attachments }) => {
   }
 };
 
-// Generate a random Google Meet link
+// Generate a random Google Meet link (only letters a-z, as Google Meet does not support numbers)
 function generateMeetLink() {
-  const part1 = Math.random().toString(36).slice(2, 5);
-  const part2 = Math.random().toString(36).slice(2, 6);
-  const part3 = Math.random().toString(36).slice(2, 5);
-  return `https://meet.google.com/${part1}-${part2}-${part3}`;
+  const letters = 'abcdefghijklmnopqrstuvwxyz';
+  const genPart = (length) => {
+    let part = '';
+    for (let i = 0; i < length; i++) {
+      part += letters.charAt(Math.floor(Math.random() * letters.length));
+    }
+    return part;
+  };
+  return `https://meet.google.com/${genPart(3)}-${genPart(4)}-${genPart(3)}`;
+}
+
+// Google Calendar API Integration to generate REAL Google Meet links via Service Account
+async function getGoogleAccessToken() {
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const privateKey = process.env.GOOGLE_PRIVATE_KEY
+    ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
+    : '';
+
+  if (!email || !privateKey) {
+    console.warn('[Google Auth] GOOGLE_SERVICE_ACCOUNT_EMAIL and/or GOOGLE_PRIVATE_KEY not defined in .env.');
+    return null;
+  }
+
+  try {
+    const token = jwt.sign(
+      {
+        iss: email,
+        scope: 'https://www.googleapis.com/auth/calendar',
+        aud: 'https://oauth2.googleapis.com/token',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        iat: Math.floor(Date.now() / 1000)
+      },
+      privateKey,
+      { algorithm: 'RS256' }
+    );
+
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${token}`
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('[Google OAuth Token Error]:', errText);
+      return null;
+    }
+
+    const data = await res.json();
+    return data.access_token;
+  } catch (err) {
+    console.error('[Google OAuth Sign/Exchange Error]:', err.message);
+    return null;
+  }
+}
+
+async function generateRealGoogleMeetLink({ mentorName, studentEmail, date, time, durationMinutes }) {
+  try {
+    const accessToken = await getGoogleAccessToken();
+    if (!accessToken) return null;
+
+    const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
+
+    // Parse start and end times
+    const dateParts = date.split('-');
+    const timeParts = time.split(':');
+    const startTime = new Date(
+      parseInt(dateParts[0]),
+      parseInt(dateParts[1]) - 1,
+      parseInt(dateParts[2]),
+      parseInt(timeParts[0]),
+      parseInt(timeParts[1]),
+      0
+    );
+    const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+
+    const eventPayload = {
+      summary: `Mentorship Session: ${mentorName} & Student`,
+      description: `Interactive mentorship session between ${mentorName} and student (${studentEmail}) on Bold & Brilliant Girls.`,
+      start: {
+        dateTime: startTime.toISOString(),
+        timeZone: 'UTC'
+      },
+      end: {
+        dateTime: endTime.toISOString(),
+        timeZone: 'UTC'
+      },
+      conferenceData: {
+        createRequest: {
+          requestId: `bbg_meet_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          conferenceSolutionKey: {
+            type: 'hangoutMeeting'
+          }
+        }
+      },
+      attendees: [
+        { email: studentEmail }
+      ]
+    };
+
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events?conferenceDataVersion=1`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(eventPayload)
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('[Google Calendar API Error] Failed to create event:', errText);
+      return null;
+    }
+
+    const event = await res.json();
+    return event.hangoutLink || null;
+  } catch (err) {
+    console.error('[Google Calendar Error] generateRealGoogleMeetLink failed:', err.message);
+    return null;
+  }
 }
 
 // Generate standard .ics calendar invite string
@@ -677,6 +797,23 @@ const submitForm = async (formType, req, res) => {
       return res.status(400).json({ success: false, message: 'Email is required' });
     }
 
+    if (formType === 'mentorship') {
+      // 1. Try to generate a REAL Google Meet link via Service Account API
+      let meetLink = await generateRealGoogleMeetLink({
+        mentorName: data.mentor,
+        studentEmail: data.email,
+        date: data.date,
+        time: data.time,
+        durationMinutes: parseInt(data.duration) || 30
+      });
+
+      // 2. Fallback to letters-only mock Google Meet link if Google API is not configured
+      if (!meetLink) {
+        meetLink = generateMeetLink();
+      }
+      data.meet_link = meetLink;
+    }
+
     const submission = new Submission({
       form_type: formType,
       data,
@@ -764,6 +901,114 @@ const submitForm = async (formType, req, res) => {
         text: `New subscriber email: ${data.email}\nIP: ${ip}\nDate: ${new Date().toLocaleString()}`,
         html: adminHtml
       });
+    }
+
+    // Special Email Handlers for Free Mentorship Booking ('mentorship')
+    if (formType === 'mentorship' && data.email) {
+      const meetLink = data.meet_link || generateMeetLink();
+      
+      // Fetch Mentor Email if possible
+      let mentorEmail = '';
+      if (data.mentor_id && mongoose.Types.ObjectId.isValid(data.mentor_id)) {
+        const dbMentor = await Mentor.findById(data.mentor_id);
+        if (dbMentor && dbMentor.email) {
+          mentorEmail = dbMentor.email;
+        }
+      }
+
+      // Create ICS invitation
+      const dateParts = data.date.split('-');
+      const timeParts = data.time.split(':');
+      const startTime = new Date(
+        parseInt(dateParts[0]),
+        parseInt(dateParts[1]) - 1,
+        parseInt(dateParts[2]),
+        parseInt(timeParts[0]),
+        parseInt(timeParts[1]),
+        0
+      );
+      const durationMinutes = parseInt(data.duration) || 30;
+      const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+
+      const icsContent = generateIcsFile({
+        start: startTime,
+        end: endTime,
+        summary: `Mentorship Session: ${data.mentor} & Student`,
+        description: `Your interactive mentorship session of ${data.duration} minutes has been scheduled.\nGoogle Meet Link: ${meetLink}`,
+        location: meetLink
+      });
+
+      const inviteAttachment = {
+        filename: 'invite.ics',
+        content: icsContent,
+        contentType: 'text/calendar; charset=utf-8; method=REQUEST'
+      };
+
+      // Send email to Student
+      const studentHtml = `
+        <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+          <h2 style="color: #EC4899; text-align: center;">Your Mentorship Session is Confirmed!</h2>
+          <p>Hi there,</p>
+          <p>Thank you for booking a session. Your mentorship meeting has been scheduled automatically.</p>
+          
+          <div style="background-color: #fdf2f8; border-left: 4px solid #EC4899; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+            <p style="margin: 0; font-weight: bold; color: #9d174d;">Meeting Details:</p>
+            <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #9d174d; line-height: 1.6;">
+              <li><strong>Mentor:</strong> ${data.mentor}</li>
+              <li><strong>Date:</strong> ${data.date}</li>
+              <li><strong>Time:</strong> ${data.time}</li>
+              <li><strong>Duration:</strong> ${data.duration} minutes</li>
+              <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #be185d; font-weight: bold;">Join Google Meet</a></li>
+            </ul>
+          </div>
+          <p>We've attached a calendar invite (<code>invite.ics</code>) to this email. You can open it to add this event directly to your calendar.</p>
+          <p>Enjoy your session!</p>
+          <hr style="border: 0; border-top: 1px solid #edf2f7; margin: 25px 0;" />
+          <p style="font-size: 12px; color: #a0aec0; text-align: center;">&copy; Bold & Brilliant Girls. All rights reserved.</p>
+        </div>
+      `;
+
+      await sendEmail({
+        to: data.email,
+        subject: `Confirmed: Mentorship Session with ${data.mentor}`,
+        text: `Hi there,\n\nYour mentorship session with ${data.mentor} is confirmed!\n\nDate: ${data.date}\nTime: ${data.time}\nDuration: ${data.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
+        html: studentHtml,
+        attachments: [inviteAttachment]
+      });
+
+      // Send email to Mentor
+      const mentorHtml = `
+        <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+          <h2 style="color: #6C5DD3; text-align: center;">New Mentorship Booking Scheduled!</h2>
+          <p>Hello ${data.mentor},</p>
+          <p>You have a new mentorship booking from a student on the Bold & Brilliant Girls platform.</p>
+          
+          <div style="background-color: #f8fafc; border-left: 4px solid #6C5DD3; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+            <p style="margin: 0; font-weight: bold; color: #4338ca;">Booking Details:</p>
+            <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #4338ca; line-height: 1.6;">
+              <li><strong>Student Email:</strong> ${data.email}</li>
+              <li><strong>Date:</strong> ${data.date}</li>
+              <li><strong>Time:</strong> ${data.time}</li>
+              <li><strong>Duration:</strong> ${data.duration} minutes</li>
+              <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #4338ca; font-weight: bold;">Join Google Meet</a></li>
+            </ul>
+          </div>
+          <p>We've attached a calendar invite (<code>invite.ics</code>) to this email. Please open it to add the session to your calendar.</p>
+          <p>Thank you for mentoring!</p>
+          <hr style="border: 0; border-top: 1px solid #edf2f7; margin: 25px 0;" />
+          <p style="font-size: 12px; color: #a0aec0; text-align: center;">&copy; Bold & Brilliant Girls. All rights reserved.</p>
+        </div>
+      `;
+
+      if (mentorEmail) {
+        await sendEmail({
+          to: mentorEmail,
+          subject: `New Booking: Mentorship Session with Student`,
+          text: `Hello ${data.mentor},\n\nYou have a new booking from a student (${data.email})!\n\nDate: ${data.date}\nTime: ${data.time}\nDuration: ${data.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
+          html: mentorHtml,
+          attachments: [inviteAttachment]
+        });
+      }
     }
 
     res.json({ success: true, message: 'Received!' });
@@ -1093,9 +1338,29 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
     }
 
     if (!submission) {
-      // 1. Generate Google Meet link
-      const meetLink = generateMeetLink();
+      // 1. Try to generate a REAL Google Meet link via Service Account API
+      let meetLink = await generateRealGoogleMeetLink({
+        mentorName: bookingData.mentor,
+        studentEmail: bookingData.email,
+        date: bookingData.date,
+        time: bookingData.time,
+        durationMinutes: parseInt(bookingData.duration) || 30
+      });
+
+      // 2. Fallback to letters-only mock Google Meet link if Google API is not configured
+      if (!meetLink) {
+        meetLink = generateMeetLink();
+      }
       bookingData.meet_link = meetLink;
+
+      // 3. Fetch Mentor Email
+      let mentorEmail = '';
+      if (bookingData.mentor_id && mongoose.Types.ObjectId.isValid(bookingData.mentor_id)) {
+        const dbMentor = await Mentor.findById(bookingData.mentor_id);
+        if (dbMentor && dbMentor.email) {
+          mentorEmail = dbMentor.email;
+        }
+      }
 
       submission = new Submission({
         form_type: 'mentorship',
@@ -1104,15 +1369,6 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
       });
       await submission.save();
       console.log('Mentorship booking recorded from checkout session payment:', sessionId);
-
-      // 2. Fetch Mentor Email if possible
-      let mentorEmail = '';
-      if (bookingData.mentor_id && mongoose.Types.ObjectId.isValid(bookingData.mentor_id)) {
-        const dbMentor = await Mentor.findById(bookingData.mentor_id);
-        if (dbMentor && dbMentor.email) {
-          mentorEmail = dbMentor.email;
-        }
-      }
 
       // 3. Create ICS invitation
       const dateParts = bookingData.date.split('-');

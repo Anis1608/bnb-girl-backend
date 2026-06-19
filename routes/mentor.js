@@ -161,7 +161,11 @@ router.put('/profile', mentorAuth, async (req, res) => {
     if (photo !== undefined) updateFields.photo = photo;
     if (role !== undefined) updateFields.role = role;
     if (linkedin !== undefined) updateFields.linkedin = linkedin;
-    if (expertise_areas !== undefined) updateFields.expertise_areas = expertise_areas;
+    if (expertise_areas !== undefined) {
+      updateFields.expertise_areas = Array.isArray(expertise_areas)
+        ? expertise_areas.join(', ')
+        : expertise_areas;
+    }
     if (durs !== undefined) updateFields.durs = durs;
 
     const mentor = await Mentor.findByIdAndUpdate(
