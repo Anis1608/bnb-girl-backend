@@ -132,6 +132,89 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// POST /api/mentor/google-login
+router.post('/google-login', async (req, res) => {
+  try {
+    const { idToken, email } = req.body;
+    if (!idToken) {
+      return res.status(400).json({ success: false, message: 'ID token is required' });
+    }
+
+    let verifiedEmail = email ? email.trim().toLowerCase() : '';
+    let firebaseUid = '';
+
+    // Handle developer / mock token bypass
+    if (idToken === 'mock_firebase_token') {
+      if (!verifiedEmail) {
+        return res.status(400).json({ success: false, message: 'Email required for mock firebase login' });
+      }
+      firebaseUid = `mock_uid_${verifiedEmail.replace(/[^a-zA-Z0-9]/g, '')}`;
+    } else {
+      // Verify using Google Identity Toolkit
+      const apiKey = process.env.FIREBASE_API_KEY || '';
+      if (!apiKey) {
+        return res.status(500).json({ success: false, message: 'Firebase API Key is not configured on the backend.' });
+      }
+
+      const verifyRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken })
+        }
+      );
+
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok || !verifyData.users || verifyData.users.length === 0) {
+        return res.status(401).json({ success: false, message: 'Invalid or expired Firebase token' });
+      }
+
+      const firebaseUser = verifyData.users[0];
+      verifiedEmail = firebaseUser.email ? firebaseUser.email.trim().toLowerCase() : verifiedEmail;
+      firebaseUid = firebaseUser.localId;
+    }
+
+    // Find if the mentor is already registered in DB
+    const mentor = await Mentor.findOne({ email: verifiedEmail });
+    if (!mentor) {
+      // Do not create a new account!
+      return res.status(400).json({ success: false, message: 'You are not a registered mentor. Please apply or contact admin.' });
+    }
+
+    // Sign JWT
+    const token = jwt.sign(
+      { id: mentor._id, email: mentor.email, role: 'mentor' },
+      process.env.JWT_SECRET || 'supersecretjwtkeyforbbgplatform123!',
+      { expiresIn: '30d' }
+    );
+
+    res.json({
+      success: true,
+      token,
+      mentor: {
+        id: mentor._id,
+        name: mentor.name,
+        email: mentor.email,
+        role: mentor.role,
+        photo: mentor.photo,
+        bio: mentor.bio,
+        quote: mentor.quote,
+        linkedin: mentor.linkedin,
+        expertise_areas: mentor.expertise_areas,
+        rate: mentor.rate,
+        durs: mentor.durs,
+        slots: mentor.slots,
+        busy: mentor.busy,
+        pricing: mentor.pricing
+      }
+    });
+  } catch (err) {
+    console.error('Mentor google login error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
 // GET /api/mentor/profile (Protected)
 router.get('/profile', mentorAuth, async (req, res) => {
   try {
@@ -149,32 +232,39 @@ router.get('/profile', mentorAuth, async (req, res) => {
 // PUT /api/mentor/profile (Protected)
 router.put('/profile', mentorAuth, async (req, res) => {
   try {
-    const { bio, quote, rate, slots, busy, pricing, photo, role, linkedin, expertise_areas, durs } = req.body;
-    const updateFields = {};
+    const { bio, quote, rate, slots, busy, pricing, photo, role, linkedin, expertise_areas, durs, password } = req.body;
+    
+    const mentor = await Mentor.findById(req.mentor.id);
+    if (!mentor) {
+      return res.status(404).json({ success: false, message: 'Mentor not found' });
+    }
 
-    if (bio !== undefined) updateFields.bio = bio;
-    if (quote !== undefined) updateFields.quote = quote;
-    if (rate !== undefined) updateFields.rate = rate;
-    if (slots !== undefined) updateFields.slots = slots;
-    if (busy !== undefined) updateFields.busy = busy;
-    if (pricing !== undefined) updateFields.pricing = pricing;
-    if (photo !== undefined) updateFields.photo = photo;
-    if (role !== undefined) updateFields.role = role;
-    if (linkedin !== undefined) updateFields.linkedin = linkedin;
+    if (bio !== undefined) mentor.bio = bio;
+    if (quote !== undefined) mentor.quote = quote;
+    if (rate !== undefined) mentor.rate = rate;
+    if (slots !== undefined) mentor.slots = slots;
+    if (busy !== undefined) mentor.busy = busy;
+    if (pricing !== undefined) mentor.pricing = pricing;
+    if (photo !== undefined) mentor.photo = photo;
+    if (role !== undefined) mentor.role = role;
+    if (linkedin !== undefined) mentor.linkedin = linkedin;
     if (expertise_areas !== undefined) {
-      updateFields.expertise_areas = Array.isArray(expertise_areas)
+      mentor.expertise_areas = Array.isArray(expertise_areas)
         ? expertise_areas.join(', ')
         : expertise_areas;
     }
-    if (durs !== undefined) updateFields.durs = durs;
+    if (durs !== undefined) mentor.durs = durs;
 
-    const mentor = await Mentor.findByIdAndUpdate(
-      req.mentor.id,
-      { $set: updateFields },
-      { new: true }
-    ).select('-password');
+    if (password) {
+      mentor.password = password;
+    }
 
-    res.json({ success: true, mentor });
+    await mentor.save();
+
+    const updatedMentor = mentor.toObject();
+    delete updatedMentor.password;
+
+    res.json({ success: true, mentor: updatedMentor });
   } catch (err) {
     console.error('Update mentor profile error:', err);
     res.status(500).json({ success: false, message: 'Internal server error' });

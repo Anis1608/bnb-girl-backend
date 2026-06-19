@@ -41,12 +41,15 @@ async function seed() {
 
     // 2. Seed Default Admin User
     console.log('Seeding default Admin...');
+    const adminEmail = process.env.ADMIN_EMAIL || 'sanah@bnbgirl.com';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'sanah123';
     const adminUser = new User({
-      username: 'admin',
-      password: 'admin123'
+      username: adminEmail,
+      password: adminPassword,
+      role: 'admin'
     });
     await adminUser.save();
-    console.log('Admin seeded! (Username: admin, Password: admin123)');
+    console.log(`Admin seeded! (Username: ${adminEmail}, Password: ${adminPassword})`);
 
     // 3. Seed Default Options
     console.log('Seeding options...');

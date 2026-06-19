@@ -109,6 +109,7 @@ async function getGoogleAccessToken() {
   const privateKey = process.env.GOOGLE_PRIVATE_KEY
     ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
     : '';
+  const impersonatedUser = process.env.GOOGLE_IMPERSONATED_USER;
 
   if (!email || !privateKey) {
     console.warn('[Google Auth] GOOGLE_SERVICE_ACCOUNT_EMAIL and/or GOOGLE_PRIVATE_KEY not defined in .env.');
@@ -116,14 +117,20 @@ async function getGoogleAccessToken() {
   }
 
   try {
+    const claims = {
+      iss: email,
+      scope: 'https://www.googleapis.com/auth/calendar',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      iat: Math.floor(Date.now() / 1000)
+    };
+
+    if (impersonatedUser) {
+      claims.sub = impersonatedUser;
+    }
+
     const token = jwt.sign(
-      {
-        iss: email,
-        scope: 'https://www.googleapis.com/auth/calendar',
-        aud: 'https://oauth2.googleapis.com/token',
-        exp: Math.floor(Date.now() / 1000) + 3600,
-        iat: Math.floor(Date.now() / 1000)
-      },
+      claims,
       privateKey,
       { algorithm: 'RS256' }
     );
@@ -183,13 +190,10 @@ async function generateRealGoogleMeetLink({ mentorName, studentEmail, date, time
         createRequest: {
           requestId: `bbg_meet_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           conferenceSolutionKey: {
-            type: 'hangoutMeeting'
+            type: 'hangoutsMeet'
           }
         }
-      },
-      attendees: [
-        { email: studentEmail }
-      ]
+      }
     };
 
     const res = await fetch(
@@ -2322,6 +2326,57 @@ app.get('/api/admin/submissions', auth, async (req, res) => {
   }
 });
 
+// GET /api/admin/analytics/mentorship
+app.get('/api/admin/analytics/mentorship', auth, async (req, res) => {
+  try {
+    const submissions = await Submission.find({ form_type: 'mentorship' });
+    
+    let totalSessions = submissions.length;
+    let totalEarnings = 0;
+    const mentorMap = {};
+
+    submissions.forEach(sub => {
+      const data = sub.data || {};
+      const mentorName = data.mentor || 'Unknown Mentor';
+      const mentorId = data.mentor_id || 'unknown';
+      const amountStr = data.amount || '';
+      
+      let amount = 0;
+      if (amountStr && !amountStr.toLowerCase().includes('free')) {
+        const parsed = parseInt(amountStr.replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(parsed)) {
+          amount = parsed;
+        }
+      }
+
+      totalEarnings += amount;
+
+      if (!mentorMap[mentorId]) {
+        mentorMap[mentorId] = {
+          mentor_id: mentorId,
+          mentor_name: mentorName,
+          sessions_count: 0,
+          earnings: 0
+        };
+      }
+      
+      mentorMap[mentorId].sessions_count += 1;
+      mentorMap[mentorId].earnings += amount;
+    });
+
+    const mentorsBreakdown = Object.values(mentorMap).sort((a, b) => b.earnings - a.earnings);
+
+    res.json({
+      success: true,
+      totalSessions,
+      totalEarnings,
+      mentorsBreakdown
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 app.put('/api/admin/submissions/:id', auth, async (req, res) => {
   try {
     const { status } = req.body;
@@ -2747,6 +2802,45 @@ const seedCmsDefaults = async () => {
   }
 };
 
+const ensureAdminUser = async () => {
+  try {
+    const adminEmail = process.env.ADMIN_EMAIL || 'sanah@bnbgirl.com';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'sanah123';
+
+    let admin = await User.findOne({ username: adminEmail });
+    if (!admin) {
+      // Check if they exist under the old username 'admin'
+      admin = await User.findOne({ username: 'admin' });
+      if (admin) {
+        admin.username = adminEmail;
+        admin.password = adminPassword;
+        admin.role = 'admin';
+        await admin.save();
+        console.log(`[Admin Setup] Updated old admin user to ${adminEmail}`);
+      } else {
+        admin = new User({
+          username: adminEmail,
+          password: adminPassword,
+          role: 'admin'
+        });
+        await admin.save();
+        console.log(`[Admin Setup] Created new admin user: ${adminEmail}`);
+      }
+    } else {
+      admin.password = adminPassword;
+      admin.role = 'admin';
+      await admin.save();
+      console.log(`[Admin Setup] Verified/Updated admin password for ${adminEmail}`);
+    }
+
+    if (adminEmail !== 'admin') {
+      await User.deleteMany({ username: 'admin' });
+    }
+  } catch (err) {
+    console.error('[Admin Setup Error]:', err.message);
+  }
+};
+
 /* ====================================================================
    DATABASE CONNECTION & SERVER LISTEN
    ==================================================================== */
@@ -2775,7 +2869,8 @@ mongoose.connect(MONGODB_URI)
       console.error('Error during index configuration cleanup:', indexErr.message);
     }
 
-    seedCmsDefaults();
+    await seedCmsDefaults();
+    await ensureAdminUser();
     app.listen(PORT, () => {
       console.log(`BBG Backend Server running on port ${PORT}`);
       console.log(`API root available at: https://api.bnbgirl.com/api`);
