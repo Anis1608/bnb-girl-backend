@@ -22,6 +22,8 @@ const mentorSchema = new mongoose.Schema({
   slots: { type: [String], default: ["09:00", "09:30", "10:00", "11:00", "11:30", "14:00", "14:30", "15:00", "16:00", "16:30"] },
   busy: { type: [String], default: ["11:00", "15:00"] },
   pricing: { type: Map, of: String, default: {} },
+  meeting_link: { type: String, default: '' },
+  timezone: { type: String, default: 'America/New_York' },
   created_at: { type: Date, default: Date.now }
 });
 

@@ -6,6 +6,82 @@ const Mentor = require('../models/Mentor');
 const Submission = require('../models/Submission');
 const mentorAuth = require('../middleware/mentorAuth');
 
+// Helper to convert a local date and time in a specific timezone to a UTC Date object
+function getUtcTime(dateStr, timeStr, timezone) {
+  try {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const [hour, minute] = timeStr.split(':').map(Number);
+    
+    // Create UTC base date
+    const date = new Date(Date.UTC(year, month - 1, day, hour, minute));
+    
+    // Check timezone offset dynamically by formatting using Intl
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hour12: false
+    });
+    
+    const parts = formatter.formatToParts(date);
+    const map = {};
+    parts.forEach(p => map[p.type] = p.value);
+    
+    // Intl hour can return 24 for midnight in some Node versions, normalize it
+    let localHr = parseInt(map.hour, 10);
+    if (localHr === 24) localHr = 0;
+    
+    const localDate = new Date(Date.UTC(
+      parseInt(map.year, 10),
+      parseInt(map.month, 10) - 1,
+      parseInt(map.day, 10),
+      localHr,
+      parseInt(map.minute, 10)
+    ));
+    
+    const diffMs = localDate.getTime() - date.getTime();
+    return new Date(date.getTime() - diffMs);
+  } catch (err) {
+    console.error(`[Timezone Error] failed to calculate UTC time for ${dateStr} ${timeStr} in ${timezone}:`, err);
+    // Fallback to naive Date construction
+    return new Date(`${dateStr}T${timeStr}:00Z`);
+  }
+}
+
+// Helper to format a UTC Date object into a readable local date and time string in a specific timezone
+function getLocalTimeParts(dateObj, timezone) {
+  try {
+    const date = typeof dateObj === 'string' ? new Date(dateObj) : dateObj;
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    
+    const parts = formatter.formatToParts(date);
+    const map = {};
+    parts.forEach(p => map[p.type] = p.value);
+    
+    // Format date as YYYY-MM-DD
+    const localDate = `${map.year}-${map.month}-${map.day}`;
+    // Format time as HH:MM
+    const localTime = `${map.hour}:${map.minute}`;
+    
+    return { date: localDate, time: localTime };
+  } catch (err) {
+    console.error(`[Timezone Error] failed to format local time for ${dateObj} in ${timezone}:`, err);
+    return { date: '', time: '' };
+  }
+}
+
 // Helper to send emails using nodemailer/SMTP
 const sendEmail = async ({ to, subject, text, html, attachments }) => {
   const smtpUser = process.env.SMTP_USER;
@@ -232,7 +308,7 @@ router.get('/profile', mentorAuth, async (req, res) => {
 // PUT /api/mentor/profile (Protected)
 router.put('/profile', mentorAuth, async (req, res) => {
   try {
-    const { bio, quote, rate, slots, busy, pricing, photo, role, linkedin, expertise_areas, durs, password } = req.body;
+    const { bio, quote, rate, slots, busy, pricing, photo, role, linkedin, expertise_areas, durs, password, meeting_link } = req.body;
     
     const mentor = await Mentor.findById(req.mentor.id);
     if (!mentor) {
@@ -254,12 +330,17 @@ router.put('/profile', mentorAuth, async (req, res) => {
         : expertise_areas;
     }
     if (durs !== undefined) mentor.durs = durs;
+    if (meeting_link !== undefined) mentor.meeting_link = meeting_link;
 
     if (password) {
       mentor.password = password;
     }
 
     await mentor.save();
+
+    if (req.app && typeof req.app.get('clearMentorsCache') === 'function') {
+      req.app.get('clearMentorsCache')();
+    }
 
     const updatedMentor = mentor.toObject();
     delete updatedMentor.password;
@@ -310,27 +391,25 @@ router.put('/bookings/:id/reschedule-accept', mentorAuth, async (req, res) => {
     const newDate = booking.data.reschedule_request.date;
     const newTime = booking.data.reschedule_request.time;
 
+    const dbMentor = await Mentor.findById(req.mentor.id);
+    const studentTz = booking.data.student_tz || 'Asia/Kolkata';
+    const utcStart = getUtcTime(newDate, newTime, studentTz);
+    const durationMinutes = parseInt(booking.data.duration, 10) || 30;
+    const utcEnd = new Date(utcStart.getTime() + durationMinutes * 60 * 1000);
+
     // Update main schedule date and time
     booking.data.date = newDate;
     booking.data.time = newTime;
+    booking.data.utc_start = utcStart.toISOString();
+    booking.data.utc_end = utcEnd.toISOString();
     booking.data.reschedule_request.status = 'accepted';
     
     booking.markModified('data');
     await booking.save();
 
-    // Trigger updated confirmation emails with the new calendar invite
-    const dateParts = newDate.split('-');
-    const timeParts = newTime.split(':');
-    const startTime = new Date(
-      parseInt(dateParts[0]),
-      parseInt(dateParts[1]) - 1,
-      parseInt(dateParts[2]),
-      parseInt(timeParts[0]),
-      parseInt(timeParts[1]),
-      0
-    );
-    const durationMinutes = parseInt(booking.data.duration) || 30;
-    const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+    // Trigger updated confirmation emails with the new calendar invite using UTC dates
+    const startTime = new Date(booking.data.utc_start);
+    const endTime = new Date(booking.data.utc_end);
     const meetLink = booking.data.meet_link || 'https://meet.google.com';
 
     const icsContent = generateIcsFile({
@@ -347,6 +426,10 @@ router.put('/bookings/:id/reschedule-accept', mentorAuth, async (req, res) => {
       contentType: 'text/calendar; charset=utf-8; method=REQUEST'
     };
 
+    // Format local times
+    const mentorTz = dbMentor?.timezone || 'America/New_York';
+    const mentorTime = getLocalTimeParts(startTime, mentorTz);
+
     // Notify Student
     const studentHtml = `
       <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
@@ -359,7 +442,7 @@ router.put('/bookings/:id/reschedule-accept', mentorAuth, async (req, res) => {
           <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #9d174d; line-height: 1.6;">
             <li><strong>Mentor:</strong> ${booking.data.mentor}</li>
             <li><strong>New Date:</strong> ${newDate}</li>
-            <li><strong>New Time:</strong> ${newTime}</li>
+            <li><strong>New Time:</strong> ${newTime} (${studentTz})</li>
             <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #be185d; font-weight: bold;">Join Google Meet</a></li>
           </ul>
         </div>
@@ -371,7 +454,7 @@ router.put('/bookings/:id/reschedule-accept', mentorAuth, async (req, res) => {
       await sendEmail({
         to: booking.data.email,
         subject: `UPDATED: Mentorship Session with ${booking.data.mentor}`,
-        text: `Hi there,\n\nYour mentorship session with ${booking.data.mentor} has been rescheduled to ${newDate} at ${newTime}.\nGoogle Meet: ${meetLink}`,
+        text: `Hi there,\n\nYour mentorship session with ${booking.data.mentor} has been rescheduled to ${newDate} at ${newTime} (${studentTz}).\nGoogle Meet: ${meetLink}`,
         html: studentHtml,
         attachments: [inviteAttachment]
       });
@@ -389,8 +472,8 @@ router.put('/bookings/:id/reschedule-accept', mentorAuth, async (req, res) => {
           <p style="margin: 0; font-weight: bold; color: #4338ca;">New Schedule:</p>
           <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #4338ca; line-height: 1.6;">
             <li><strong>Student Email:</strong> ${booking.data.email}</li>
-            <li><strong>New Date:</strong> ${newDate}</li>
-            <li><strong>New Time:</strong> ${newTime}</li>
+            <li><strong>New Date:</strong> ${mentorTime.date}</li>
+            <li><strong>New Time:</strong> ${mentorTime.time} (${mentorTz})</li>
             <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #4338ca; font-weight: bold;">Join Google Meet</a></li>
           </ul>
         </div>
@@ -402,7 +485,7 @@ router.put('/bookings/:id/reschedule-accept', mentorAuth, async (req, res) => {
       await sendEmail({
         to: mentorEmail,
         subject: `Reschedule Confirmed: Mentorship with ${booking.data.email}`,
-        text: `Hello ${booking.data.mentor},\n\nYou rescheduled your session with ${booking.data.email} to ${newDate} at ${newTime}.\nGoogle Meet: ${meetLink}`,
+        text: `Hello ${booking.data.mentor},\n\nYou rescheduled your session with ${booking.data.email} to ${mentorTime.date} at ${mentorTime.time} (${mentorTz}).\nGoogle Meet: ${meetLink}`,
         html: mentorHtml,
         attachments: [inviteAttachment]
       });
@@ -471,6 +554,183 @@ router.put('/bookings/:id/reschedule-decline', mentorAuth, async (req, res) => {
   } catch (err) {
     console.error('Error declining reschedule request:', err);
     res.status(500).json({ success: false, message: 'Server error declining request.', error: err.message });
+  }
+});
+
+// PUT /api/mentor/bookings/:id/reschedule - Mentor reschedules a booking directly
+router.put('/bookings/:id/reschedule', mentorAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date, time } = req.body;
+
+    if (!date || !time) {
+      return res.status(400).json({ success: false, message: 'Date and time are required for rescheduling.' });
+    }
+
+    const booking = await Submission.findById(id);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found.' });
+    }
+
+    // Security check: Verify mentor
+    if (String(booking.data.mentor_id) !== String(req.mentor.id)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized access to this booking.' });
+    }
+
+    const dbMentor = await Mentor.findById(req.mentor.id);
+    if (!dbMentor) {
+      return res.status(404).json({ success: false, message: 'Mentor profile not found.' });
+    }
+
+    const mentorTz = dbMentor.timezone || 'America/New_York';
+    const utcStart = getUtcTime(date, time, mentorTz);
+    const duration = parseInt(booking.data.duration, 10) || 30;
+    const utcEnd = new Date(utcStart.getTime() + duration * 60 * 1000);
+
+    // Overlap validation in UTC
+    const otherBookings = await Submission.find({
+      _id: { $ne: booking._id },
+      form_type: 'mentorship',
+      status: { $ne: 'spam' },
+      $or: [
+        { 'data.mentor_id': req.mentor.id },
+        { 'data.mentor_id': String(req.mentor.id) }
+      ]
+    });
+
+    const getBookingUtcRange = (b) => {
+      if (b.data.utc_start) {
+        return {
+          start: new Date(b.data.utc_start),
+          end: new Date(b.data.utc_end)
+        };
+      }
+      const start = new Date(`${b.data.date}T${b.data.time}:00Z`);
+      const durationVal = parseInt(b.data.duration, 10) || 30;
+      return {
+        start,
+        end: new Date(start.getTime() + durationVal * 60 * 1000)
+      };
+    };
+
+    const hasOverlap = otherBookings.some(b => {
+      const bRange = getBookingUtcRange(b);
+      return (utcStart < bRange.end && utcEnd > bRange.start);
+    });
+
+    if (hasOverlap) {
+      return res.status(400).json({ success: false, message: 'The requested time slot overlaps with another booking. Please select another slot.' });
+    }
+
+    // Check if slot falls in mentor's busy blocks
+    if (dbMentor.busy && dbMentor.busy.includes(time)) {
+      return res.status(400).json({ success: false, message: 'This slot is marked as busy in your profile settings.' });
+    }
+
+    // Convert new reschedule time to Student's local timezone parts
+    const studentTz = booking.data.student_tz || 'Asia/Kolkata';
+    const studentTime = getLocalTimeParts(utcStart, studentTz);
+
+    // Update main schedule date and time
+    booking.data.date = studentTime.date;
+    booking.data.time = studentTime.time;
+    booking.data.utc_start = utcStart.toISOString();
+    booking.data.utc_end = utcEnd.toISOString();
+    booking.data.reschedule_request = {
+      date: studentTime.date,
+      time: studentTime.time,
+      status: 'accepted',
+      rescheduled_by: 'mentor',
+      rescheduled_at: new Date().toISOString()
+    };
+    
+    booking.markModified('data');
+    await booking.save();
+
+    // Trigger updated confirmation emails with the new calendar invite using UTC dates
+    const startTime = new Date(booking.data.utc_start);
+    const endTime = new Date(booking.data.utc_end);
+    const meetLink = booking.data.meet_link || 'https://meet.google.com';
+
+    const icsContent = generateIcsFile({
+      start: startTime,
+      end: endTime,
+      summary: `UPDATED: Mentorship Session: ${booking.data.mentor} & Student`,
+      description: `Your mentorship session has been rescheduled by the mentor.\nGoogle Meet Link: ${meetLink}`,
+      location: meetLink
+    });
+
+    const inviteAttachment = {
+      filename: 'invite.ics',
+      content: icsContent,
+      contentType: 'text/calendar; charset=utf-8; method=REQUEST'
+    };
+
+    // Notify Student
+    const studentHtml = `
+      <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+        <h2 style="color: #EC4899; text-align: center;">Mentorship Session Rescheduled</h2>
+        <p>Hi there,</p>
+        <p>Your mentor <strong>${booking.data.mentor}</strong> has rescheduled your upcoming mentorship session.</p>
+        
+        <div style="background-color: #fdf2f8; border-left: 4px solid #EC4899; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+          <p style="margin: 0; font-weight: bold; color: #9d174d;">New Details:</p>
+          <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #9d174d; line-height: 1.6;">
+            <li><strong>Mentor:</strong> ${booking.data.mentor}</li>
+            <li><strong>New Date:</strong> ${studentTime.date}</li>
+            <li><strong>New Time:</strong> ${studentTime.time} (${studentTz})</li>
+            <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #be185d; font-weight: bold;">Join Google Meet</a></li>
+          </ul>
+        </div>
+        <p>We've attached an updated calendar invite (<code>invite.ics</code>) to this email. You can open it to update your calendar.</p>
+      </div>
+    `;
+
+    if (booking.data.email) {
+      await sendEmail({
+        to: booking.data.email,
+        subject: `UPDATED: Mentorship Session with ${booking.data.mentor}`,
+        text: `Hi there,\n\nYour mentorship session with ${booking.data.mentor} has been rescheduled by the mentor to ${studentTime.date} at ${studentTime.time} (${studentTz}).\nGoogle Meet: ${meetLink}`,
+        html: studentHtml,
+        attachments: [inviteAttachment]
+      });
+    }
+
+    // Notify Mentor
+    const mentorEmail = req.mentor.email;
+    const mentorHtml = `
+      <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+        <h2 style="color: #6C5DD3; text-align: center;">Reschedule Confirmed</h2>
+        <p>Hello ${booking.data.mentor},</p>
+        <p>You have rescheduled your session with <strong>${booking.data.email}</strong>.</p>
+        
+        <div style="background-color: #f8fafc; border-left: 4px solid #6C5DD3; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+          <p style="margin: 0; font-weight: bold; color: #4338ca;">New Schedule Details:</p>
+          <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #4338ca; line-height: 1.6;">
+            <li><strong>Student Email:</strong> ${booking.data.email}</li>
+            <li><strong>New Date:</strong> ${date}</li>
+            <li><strong>New Time:</strong> ${time} (${mentorTz})</li>
+            <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #4338ca; font-weight: bold;">Join Google Meet</a></li>
+          </ul>
+        </div>
+        <p>We've attached an updated calendar invite (<code>invite.ics</code>) for your records.</p>
+      </div>
+    `;
+
+    if (mentorEmail) {
+      await sendEmail({
+        to: mentorEmail,
+        subject: `Reschedule Confirmed: Mentorship with ${booking.data.email}`,
+        text: `Hello ${booking.data.mentor},\n\nYou rescheduled your session with ${booking.data.email} to ${date} at ${time} (${mentorTz}).\nGoogle Meet: ${meetLink}`,
+        html: mentorHtml,
+        attachments: [inviteAttachment]
+      });
+    }
+
+    res.json({ success: true, booking });
+  } catch (err) {
+    console.error('Error rescheduling booking:', err);
+    res.status(500).json({ success: false, message: 'Server error rescheduling session.', error: err.message });
   }
 });
 

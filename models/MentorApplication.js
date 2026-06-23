@@ -11,6 +11,7 @@ const mentorApplicationSchema = new mongoose.Schema({
   motivation: { type: String, default: '' },
   years_exp: { type: String, default: '' },
   photo: { type: String, default: '' },
+  timezone: { type: String, default: 'America/New_York' },
   status: { type: String, default: 'pending', enum: ['pending', 'accepted', 'rejected'] },
   notes: { type: String, default: '' },
   created_at: { type: Date, default: Date.now }

@@ -169,6 +169,7 @@ async function seed() {
         mentor_rate: 'Paid',
         mentor_avail: 'Limited spots',
         mentor_linkedin: '',
+        mentor_email: 'maha@bnbgirl.com',
         mentor_fields: 'Communications, Business Strategy, Branding',
         tags: 'leadership,business,branding,author,reinvention,identity',
         description: 'A deeply honest conversation about identity, ambition, and what it really takes to build yourself from the ground up.'
@@ -213,6 +214,7 @@ async function seed() {
         mentor_rate: 'Paid consultation',
         mentor_avail: 'Monthly slots',
         mentor_linkedin: '',
+        mentor_email: 'saliha@bnbgirl.com',
         mentor_fields: 'Burnout Prevention, Mental Wellness, Work-Life Balance',
         tags: 'burnout,mental health,psychology,digital wellness,inner guide',
         description: 'Clinical yet deeply human perspective on burnout.'
@@ -257,6 +259,7 @@ async function seed() {
         mentor_rate: 'Free intro session',
         mentor_avail: 'Bi-weekly',
         mentor_linkedin: '',
+        mentor_email: 'amyroko@bnbgirl.com',
         mentor_fields: 'Branding, Entrepreneurship, Social Media',
         tags: 'business,branding,entrepreneurship,startup,founder',
         description: 'The real, unglamorous journey of building a brand from zero.'

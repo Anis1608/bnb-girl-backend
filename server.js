@@ -103,6 +103,82 @@ function generateMeetLink() {
   return `https://meet.google.com/${genPart(3)}-${genPart(4)}-${genPart(3)}`;
 }
 
+// Helper to convert a local date and time in a specific timezone to a UTC Date object
+function getUtcTime(dateStr, timeStr, timezone) {
+  try {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const [hour, minute] = timeStr.split(':').map(Number);
+    
+    // Create UTC base date
+    const date = new Date(Date.UTC(year, month - 1, day, hour, minute));
+    
+    // Check timezone offset dynamically by formatting using Intl
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hour12: false
+    });
+    
+    const parts = formatter.formatToParts(date);
+    const map = {};
+    parts.forEach(p => map[p.type] = p.value);
+    
+    // Intl hour can return 24 for midnight in some Node versions, normalize it
+    let localHr = parseInt(map.hour, 10);
+    if (localHr === 24) localHr = 0;
+    
+    const localDate = new Date(Date.UTC(
+      parseInt(map.year, 10),
+      parseInt(map.month, 10) - 1,
+      parseInt(map.day, 10),
+      localHr,
+      parseInt(map.minute, 10)
+    ));
+    
+    const diffMs = localDate.getTime() - date.getTime();
+    return new Date(date.getTime() - diffMs);
+  } catch (err) {
+    console.error(`[Timezone Error] failed to calculate UTC time for ${dateStr} ${timeStr} in ${timezone}:`, err);
+    // Fallback to naive Date construction
+    return new Date(`${dateStr}T${timeStr}:00Z`);
+  }
+}
+
+// Helper to format a UTC Date object into a readable local date and time string in a specific timezone
+function getLocalTimeParts(dateObj, timezone) {
+  try {
+    const date = typeof dateObj === 'string' ? new Date(dateObj) : dateObj;
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    
+    const parts = formatter.formatToParts(date);
+    const map = {};
+    parts.forEach(p => map[p.type] = p.value);
+    
+    // Format date as YYYY-MM-DD
+    const localDate = `${map.year}-${map.month}-${map.day}`;
+    // Format time as HH:MM
+    const localTime = `${map.hour}:${map.minute}`;
+    
+    return { date: localDate, time: localTime };
+  } catch (err) {
+    console.error(`[Timezone Error] failed to format local time for ${dateObj} in ${timezone}:`, err);
+    return { date: '', time: '' };
+  }
+}
+
 // Google Calendar API Integration to generate REAL Google Meet links via Service Account
 async function getGoogleAccessToken() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
@@ -155,7 +231,7 @@ async function getGoogleAccessToken() {
   }
 }
 
-async function generateRealGoogleMeetLink({ mentorName, studentEmail, date, time, durationMinutes }) {
+async function generateRealGoogleMeetLink({ mentorName, studentEmail, mentorEmail, date, time, durationMinutes }) {
   try {
     const accessToken = await getGoogleAccessToken();
     if (!accessToken) return null;
@@ -195,6 +271,13 @@ async function generateRealGoogleMeetLink({ mentorName, studentEmail, date, time
         }
       }
     };
+
+    const attendees = [];
+    if (studentEmail) attendees.push({ email: studentEmail });
+    if (mentorEmail) attendees.push({ email: mentorEmail });
+    if (attendees.length > 0) {
+      eventPayload.attendees = attendees;
+    }
 
     const res = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events?conferenceDataVersion=1`,
@@ -528,7 +611,20 @@ app.get('/api/episodes/:id', async (req, res) => {
 });
 
 // 6. GET /api/mentors - Consolidated mentors list
+let mentorsCache = null;
+let mentorsCacheTime = 0;
+const MENTORS_CACHE_TTL = 30 * 1000; // 30 seconds
+
+app.set('clearMentorsCache', () => {
+  mentorsCache = null;
+});
+
 app.get('/api/mentors', async (req, res) => {
+  const now = Date.now();
+  if (mentorsCache && (now - mentorsCacheTime < MENTORS_CACHE_TTL)) {
+    return res.json(mentorsCache);
+  }
+
   try {
     const calculateRates = (baseRate) => {
       let numericBase = 20;
@@ -580,7 +676,8 @@ app.get('/api/mentors', async (req, res) => {
         p30: rates.p30,
         p60: rates.p60,
         p120: rates.p120,
-        pricing: e.pricing || {}
+        pricing: e.pricing || {},
+        meeting_link: e.mentor_meet_link || ''
       };
     });
 
@@ -617,52 +714,36 @@ app.get('/api/mentors', async (req, res) => {
         p30: rates.p30,
         p60: rates.p60,
         p120: rates.p120,
-        pricing: m.pricing || {}
+        pricing: m.pricing || {},
+        meeting_link: m.meeting_link || ''
       };
     });
 
-    // Combine lists
-    res.json([...formattedEp, ...formattedDedicated]);
+    // Combine lists and cache
+    const combined = [...formattedEp, ...formattedDedicated];
+    mentorsCache = combined;
+    mentorsCacheTime = now;
+    res.json(combined);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error fetching mentors' });
   }
 });
 
-// 6.5 GET /api/mentors/:id/availability - Dynamic timeslot availability on a selected date
+// 6.5 GET /api/mentors/:id/availability - Dynamic timezone-aware timeslot availability on a selected date
 app.get('/api/mentors/:id/availability', async (req, res) => {
   try {
     const { id } = req.params;
-    const { date } = req.query; // YYYY-MM-DD format
+    const { date, student_tz } = req.query; // date is YYYY-MM-DD, student_tz is e.g. 'Asia/Kolkata'
 
     if (!date) {
       return res.status(400).json({ success: false, message: 'Date parameter is required (YYYY-MM-DD)' });
     }
 
-    // 1. Find all paid/reviewed bookings for this mentor on the selected date (excluding spam status)
-    const bookings = await Submission.find({
-      form_type: 'mentorship',
-      status: { $ne: 'spam' },
-      $or: [
-        { 'data.mentor_id': id },
-        { 'data.mentor_id': String(id) }
-      ],
-      'data.date': date
-    });
+    const tz = student_tz || 'Asia/Kolkata';
 
-    const toMinutes = (timeStr) => {
-      const [h, m] = timeStr.split(':').map(Number);
-      return h * 60 + m;
-    };
-
-    // Calculate all blocked minute ranges
-    const blockedRanges = bookings.map(b => {
-      const startMins = toMinutes(b.data.time);
-      const duration = parseInt(b.data.duration) || 30;
-      return { start: startMins, end: startMins + duration };
-    });
-
-    // Standard default slots for the mentor (or default ones if not customized)
+    // 1. Get Mentor Profile, Slots, Timezone
+    let mentorTz = 'America/New_York';
     let slots = ["09:00", "09:30", "10:00", "11:00", "11:30", "14:00", "14:30", "15:00", "16:00", "16:30"];
     let busySlots = ["11:00", "15:00"];
 
@@ -671,29 +752,107 @@ app.get('/api/mentors/:id/availability', async (req, res) => {
       if (mentor) {
         if (mentor.slots && mentor.slots.length > 0) slots = mentor.slots;
         if (mentor.busy) busySlots = mentor.busy;
+        mentorTz = mentor.timezone || 'America/New_York';
       } else {
         const ep = await Episode.findById(id);
         if (ep) {
           if (ep.slots && ep.slots.length > 0) slots = ep.slots;
           if (ep.busy) busySlots = ep.busy;
+          mentorTz = ep.mentor_timezone || 'America/New_York';
         }
       }
     }
 
-    // Identify which slots from the mentor's potential slots list overlap with booked ranges
-    const bookedSlots = slots.filter(slot => {
-      const slotMins = toMinutes(slot);
-      return blockedRanges.some(range => slotMins >= range.start && slotMins < range.end);
+    // 2. Calculate the UTC range corresponding to the selected date in student's timezone
+    const studentDayStartUtc = getUtcTime(date, '00:00', tz);
+    const studentDayEndUtc = new Date(studentDayStartUtc.getTime() + 24 * 60 * 60 * 1000);
+
+    // 3. Find all bookings that overlap with this UTC range
+    const bookings = await Submission.find({
+      form_type: 'mentorship',
+      status: { $ne: 'spam' },
+      $or: [
+        { 'data.mentor_id': id },
+        { 'data.mentor_id': String(id) }
+      ],
+      $or: [
+        {
+          'data.utc_start': { $lt: studentDayEndUtc },
+          'data.utc_end': { $gt: studentDayStartUtc }
+        },
+        {
+          'data.date': { $in: [date, getLocalTimeParts(studentDayStartUtc, 'UTC').date, getLocalTimeParts(studentDayEndUtc, 'UTC').date] }
+        }
+      ]
     });
 
-    // Combine statically busy slots + dynamically booked slots
-    const allBlockedSlots = Array.from(new Set([...busySlots, ...bookedSlots]));
+    const getBookingUtcRange = (b) => {
+      if (b.data.utc_start) {
+        return {
+          start: new Date(b.data.utc_start),
+          end: new Date(b.data.utc_end)
+        };
+      }
+      const start = new Date(`${b.data.date}T${b.data.time}:00Z`);
+      const duration = parseInt(b.data.duration, 10) || 30;
+      return {
+        start,
+        end: new Date(start.getTime() + duration * 60 * 1000)
+      };
+    };
+
+    // 4. Generate mentor slots for 3 adjacent dates in mentor's local timezone
+    const studentDateObj = new Date(`${date}T00:00:00Z`);
+    const mentorLocalDates = [];
+    for (let i = -1; i <= 1; i++) {
+      const d = new Date(studentDateObj.getTime() + i * 24 * 60 * 60 * 1000);
+      mentorLocalDates.push(d.toISOString().slice(0, 10));
+    }
+
+    const computedSlots = []; // elements: { studentLocalTimeStr, utcStart, isBusy }
+
+    for (const localDate of mentorLocalDates) {
+      for (const slot of slots) {
+        const slotStartUtc = getUtcTime(localDate, slot, mentorTz);
+        
+        // Only keep slots that fall within the student's selected day
+        if (slotStartUtc >= studentDayStartUtc && slotStartUtc < studentDayEndUtc) {
+          const studentTimeParts = getLocalTimeParts(slotStartUtc, tz);
+          
+          if (studentTimeParts.date === date) {
+            // Check dynamic bookings overlap
+            const slotEndUtc = new Date(slotStartUtc.getTime() + 30 * 60 * 1000); // 30 mins
+            const isBooked = bookings.some(b => {
+              const bRange = getBookingUtcRange(b);
+              return (slotStartUtc < bRange.end && slotEndUtc > bRange.start);
+            });
+
+            // Check static busy blocks in mentor's timezone
+            const isStaticBusy = busySlots.includes(slot);
+
+            computedSlots.push({
+              time: studentTimeParts.time,
+              utcStart: slotStartUtc.getTime(),
+              isBusy: isBooked || isStaticBusy
+            });
+          }
+        }
+      }
+    }
+
+    // Sort computed slots chronologically by UTC start time
+    computedSlots.sort((a, b) => a.utcStart - b.utcStart);
+
+    // Group into output lists
+    const allStudentSlots = computedSlots.map(s => s.time);
+    const bookedStudentSlots = computedSlots.filter(s => s.isBusy).map(s => s.time);
 
     res.json({
       success: true,
-      bookedSlots: allBlockedSlots,
-      onlyBooked: bookedSlots,
-      onlyStatic: busySlots
+      slots: allStudentSlots,
+      bookedSlots: bookedStudentSlots,
+      mentorTimezone: mentorTz,
+      studentTimezone: tz
     });
   } catch (err) {
     console.error('Error calculating mentor availability:', err);
@@ -802,16 +961,55 @@ const submitForm = async (formType, req, res) => {
     }
 
     if (formType === 'mentorship') {
-      // 1. Try to generate a REAL Google Meet link via Service Account API
-      let meetLink = await generateRealGoogleMeetLink({
-        mentorName: data.mentor,
-        studentEmail: data.email,
-        date: data.date,
-        time: data.time,
-        durationMinutes: parseInt(data.duration) || 30
-      });
+      // Fetch Mentor Email, Personal Meeting Link and Timezone
+      let mentorEmail = '';
+      let mentorMeetLink = '';
+      let mentorTimezone = 'America/New_York';
+      if (data.mentor_id && mongoose.Types.ObjectId.isValid(data.mentor_id)) {
+        let dbMentor = await Mentor.findById(data.mentor_id);
+        if (!dbMentor) {
+          dbMentor = await Mentor.findOne({ episode_id: data.mentor_id });
+        }
+        if (dbMentor) {
+          mentorEmail = dbMentor.email || '';
+          mentorMeetLink = dbMentor.meeting_link || '';
+          mentorTimezone = dbMentor.timezone || 'America/New_York';
+        } else {
+          const dbEp = await Episode.findById(data.mentor_id);
+          if (dbEp) {
+            mentorEmail = dbEp.mentor_email || '';
+            mentorMeetLink = dbEp.mentor_meet_link || '';
+            mentorTimezone = dbEp.mentor_timezone || 'America/New_York';
+          }
+        }
+      }
+      data.mentor_email = mentorEmail;
+      data.mentor_timezone = mentorTimezone;
 
-      // 2. Fallback to letters-only mock Google Meet link if Google API is not configured
+      // Compute dynamic UTC timestamps for booking ranges
+      const tz = data.student_tz || 'Asia/Kolkata';
+      const utcStart = getUtcTime(data.date, data.time, tz);
+      const durationMin = parseInt(data.duration, 10) || 30;
+      const utcEnd = new Date(utcStart.getTime() + durationMin * 60 * 1000);
+
+      data.utc_start = utcStart.toISOString();
+      data.utc_end = utcEnd.toISOString();
+
+      // 1. Try to use Mentor's Personal Meeting Link first
+      let meetLink = mentorMeetLink;
+      if (!meetLink) {
+        // Generate a REAL Google Meet link via Service Account API
+        meetLink = await generateRealGoogleMeetLink({
+          mentorName: data.mentor,
+          studentEmail: data.email,
+          mentorEmail: mentorEmail,
+          date: data.date,
+          time: data.time,
+          durationMinutes: durationMin
+        });
+      }
+
+      // 2. Fallback to letters-only mock Google Meet link if Google API is not configured or failed
       if (!meetLink) {
         meetLink = generateMeetLink();
       }
@@ -912,27 +1110,12 @@ const submitForm = async (formType, req, res) => {
       const meetLink = data.meet_link || generateMeetLink();
       
       // Fetch Mentor Email if possible
-      let mentorEmail = '';
-      if (data.mentor_id && mongoose.Types.ObjectId.isValid(data.mentor_id)) {
-        const dbMentor = await Mentor.findById(data.mentor_id);
-        if (dbMentor && dbMentor.email) {
-          mentorEmail = dbMentor.email;
-        }
-      }
+      let mentorEmail = data.mentor_email || '';
+      let mentorTimezone = data.mentor_timezone || 'America/New_York';
 
-      // Create ICS invitation
-      const dateParts = data.date.split('-');
-      const timeParts = data.time.split(':');
-      const startTime = new Date(
-        parseInt(dateParts[0]),
-        parseInt(dateParts[1]) - 1,
-        parseInt(dateParts[2]),
-        parseInt(timeParts[0]),
-        parseInt(timeParts[1]),
-        0
-      );
-      const durationMinutes = parseInt(data.duration) || 30;
-      const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+      // Create ICS invitation using UTC dates
+      const startTime = new Date(data.utc_start);
+      const endTime = new Date(data.utc_end);
 
       const icsContent = generateIcsFile({
         start: startTime,
@@ -948,6 +1131,11 @@ const submitForm = async (formType, req, res) => {
         contentType: 'text/calendar; charset=utf-8; method=REQUEST'
       };
 
+      // Format local times for Student and Mentor
+      const studentTz = data.student_tz || 'Asia/Kolkata';
+      const studentTime = getLocalTimeParts(startTime, studentTz);
+      const mentorTime = getLocalTimeParts(startTime, mentorTimezone);
+
       // Send email to Student
       const studentHtml = `
         <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
@@ -959,8 +1147,8 @@ const submitForm = async (formType, req, res) => {
             <p style="margin: 0; font-weight: bold; color: #9d174d;">Meeting Details:</p>
             <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #9d174d; line-height: 1.6;">
               <li><strong>Mentor:</strong> ${data.mentor}</li>
-              <li><strong>Date:</strong> ${data.date}</li>
-              <li><strong>Time:</strong> ${data.time}</li>
+              <li><strong>Date:</strong> ${studentTime.date}</li>
+              <li><strong>Time:</strong> ${studentTime.time} (${studentTz})</li>
               <li><strong>Duration:</strong> ${data.duration} minutes</li>
               <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #be185d; font-weight: bold;">Join Google Meet</a></li>
             </ul>
@@ -975,7 +1163,7 @@ const submitForm = async (formType, req, res) => {
       await sendEmail({
         to: data.email,
         subject: `Confirmed: Mentorship Session with ${data.mentor}`,
-        text: `Hi there,\n\nYour mentorship session with ${data.mentor} is confirmed!\n\nDate: ${data.date}\nTime: ${data.time}\nDuration: ${data.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
+        text: `Hi there,\n\nYour mentorship session with ${data.mentor} is confirmed!\n\nDate: ${studentTime.date}\nTime: ${studentTime.time} (${studentTz})\nDuration: ${data.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
         html: studentHtml,
         attachments: [inviteAttachment]
       });
@@ -991,8 +1179,8 @@ const submitForm = async (formType, req, res) => {
             <p style="margin: 0; font-weight: bold; color: #4338ca;">Booking Details:</p>
             <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #4338ca; line-height: 1.6;">
               <li><strong>Student Email:</strong> ${data.email}</li>
-              <li><strong>Date:</strong> ${data.date}</li>
-              <li><strong>Time:</strong> ${data.time}</li>
+              <li><strong>Date:</strong> ${mentorTime.date}</li>
+              <li><strong>Time:</strong> ${mentorTime.time} (${mentorTimezone})</li>
               <li><strong>Duration:</strong> ${data.duration} minutes</li>
               <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #4338ca; font-weight: bold;">Join Google Meet</a></li>
             </ul>
@@ -1008,7 +1196,7 @@ const submitForm = async (formType, req, res) => {
         await sendEmail({
           to: mentorEmail,
           subject: `New Booking: Mentorship Session with Student`,
-          text: `Hello ${data.mentor},\n\nYou have a new booking from a student (${data.email})!\n\nDate: ${data.date}\nTime: ${data.time}\nDuration: ${data.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
+          text: `Hello ${data.mentor},\n\nYou have a new booking from a student (${data.email})!\n\nDate: ${mentorTime.date}\nTime: ${mentorTime.time} (${mentorTimezone})\nDuration: ${data.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
           html: mentorHtml,
           attachments: [inviteAttachment]
         });
@@ -1055,7 +1243,7 @@ app.post('/api/unsubscribe', async (req, res) => {
 // Public endpoint for submitting a mentor application with optional photo upload
 app.post('/api/mentor-application', upload.single('photo'), async (req, res) => {
   try {
-    const { name, email, role, organisation, linkedin, expertise, bio, motivation, years_exp } = req.body;
+    const { name, email, role, organisation, linkedin, expertise, bio, motivation, years_exp, timezone } = req.body;
 
     if (!name || !email) {
       return res.status(400).json({ success: false, message: 'Name and Email are required' });
@@ -1088,6 +1276,7 @@ app.post('/api/mentor-application', upload.single('photo'), async (req, res) => 
       motivation: motivation || '',
       years_exp: years_exp || '',
       photo: photoUrl,
+      timezone: timezone || 'America/New_York',
       status: 'pending'
     });
 
@@ -1157,7 +1346,7 @@ app.post('/api/mentor-application', upload.single('photo'), async (req, res) => 
 // 8.5 POST /api/create-checkout-session - Stripe Checkout Session creation (Secure Rates lookup)
 app.post('/api/create-checkout-session', async (req, res) => {
   try {
-    const { mentorId, mentor, dur, date, time, email } = req.body;
+    const { mentorId, mentor, dur, date, time, email, student_tz } = req.body;
 
     let baseRate = '$20';
     let found = false;
@@ -1272,7 +1461,8 @@ app.post('/api/create-checkout-session', async (req, res) => {
         dur: String(dur || ''),
         date: String(date || ''),
         time: String(time || ''),
-        email: String(email || '')
+        email: String(email || ''),
+        student_tz: String(student_tz || '')
       },
     });
 
@@ -1303,6 +1493,7 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
         date: new Date().toISOString().slice(0, 10),
         time: '10:00',
         email: 'demo@example.com',
+        student_tz: 'Asia/Kolkata',
         amount: '$20',
         submitted_at: new Date().toISOString()
       };
@@ -1329,6 +1520,7 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
         date: meta.date,
         time: meta.time,
         email: meta.email,
+        student_tz: meta.student_tz || 'Asia/Kolkata',
         amount: `$${(session.amount_total / 100).toFixed(0)}`,
         stripe_session_id: sessionId,
         submitted_at: new Date().toISOString()
@@ -1342,29 +1534,59 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
     }
 
     if (!submission) {
-      // 1. Try to generate a REAL Google Meet link via Service Account API
-      let meetLink = await generateRealGoogleMeetLink({
-        mentorName: bookingData.mentor,
-        studentEmail: bookingData.email,
-        date: bookingData.date,
-        time: bookingData.time,
-        durationMinutes: parseInt(bookingData.duration) || 30
-      });
+      // 1. Fetch Mentor Email, Personal Meeting Link and Timezone
+      let mentorEmail = '';
+      let mentorMeetLink = '';
+      let mentorTimezone = 'America/New_York';
+      if (bookingData.mentor_id && mongoose.Types.ObjectId.isValid(bookingData.mentor_id)) {
+        let dbMentor = await Mentor.findById(bookingData.mentor_id);
+        if (!dbMentor) {
+          dbMentor = await Mentor.findOne({ episode_id: bookingData.mentor_id });
+        }
+        if (dbMentor) {
+          mentorEmail = dbMentor.email || '';
+          mentorMeetLink = dbMentor.meeting_link || '';
+          mentorTimezone = dbMentor.timezone || 'America/New_York';
+        } else {
+          const dbEp = await Episode.findById(bookingData.mentor_id);
+          if (dbEp) {
+            mentorEmail = dbEp.mentor_email || '';
+            mentorMeetLink = dbEp.mentor_meet_link || '';
+            mentorTimezone = dbEp.mentor_timezone || 'America/New_York';
+          }
+        }
+      }
+      bookingData.mentor_email = mentorEmail;
+      bookingData.mentor_timezone = mentorTimezone;
 
-      // 2. Fallback to letters-only mock Google Meet link if Google API is not configured
+      // Compute dynamic UTC timestamps for booking ranges
+      const tz = bookingData.student_tz || 'Asia/Kolkata';
+      const utcStart = getUtcTime(bookingData.date, bookingData.time, tz);
+      const durationMin = parseInt(bookingData.duration, 10) || 30;
+      const utcEnd = new Date(utcStart.getTime() + durationMin * 60 * 1000);
+
+      bookingData.utc_start = utcStart.toISOString();
+      bookingData.utc_end = utcEnd.toISOString();
+
+      // 2. Try to use Mentor's Personal Meeting Link first
+      let meetLink = mentorMeetLink;
+      if (!meetLink) {
+        // Generate a REAL Google Meet link via Service Account API
+        meetLink = await generateRealGoogleMeetLink({
+          mentorName: bookingData.mentor,
+          studentEmail: bookingData.email,
+          mentorEmail: mentorEmail,
+          date: bookingData.date,
+          time: bookingData.time,
+          durationMinutes: durationMin
+        });
+      }
+
+      // 3. Fallback to letters-only mock Google Meet link if Google API is not configured or failed
       if (!meetLink) {
         meetLink = generateMeetLink();
       }
       bookingData.meet_link = meetLink;
-
-      // 3. Fetch Mentor Email
-      let mentorEmail = '';
-      if (bookingData.mentor_id && mongoose.Types.ObjectId.isValid(bookingData.mentor_id)) {
-        const dbMentor = await Mentor.findById(bookingData.mentor_id);
-        if (dbMentor && dbMentor.email) {
-          mentorEmail = dbMentor.email;
-        }
-      }
 
       submission = new Submission({
         form_type: 'mentorship',
@@ -1374,19 +1596,9 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
       await submission.save();
       console.log('Mentorship booking recorded from checkout session payment:', sessionId);
 
-      // 3. Create ICS invitation
-      const dateParts = bookingData.date.split('-');
-      const timeParts = bookingData.time.split(':');
-      const startTime = new Date(
-        parseInt(dateParts[0]),
-        parseInt(dateParts[1]) - 1,
-        parseInt(dateParts[2]),
-        parseInt(timeParts[0]),
-        parseInt(timeParts[1]),
-        0
-      );
-      const durationMinutes = parseInt(bookingData.duration) || 30;
-      const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+      // 3. Create ICS invitation using UTC dates
+      const startTime = new Date(bookingData.utc_start);
+      const endTime = new Date(bookingData.utc_end);
 
       const icsContent = generateIcsFile({
         start: startTime,
@@ -1402,6 +1614,10 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
         contentType: 'text/calendar; charset=utf-8; method=REQUEST'
       };
 
+      // Format local times for Student and Mentor
+      const studentTime = getLocalTimeParts(startTime, tz);
+      const mentorTime = getLocalTimeParts(startTime, mentorTimezone);
+
       // 4. Send email to Student
       const studentHtml = `
         <div style="font-family: sans-serif; padding: 25px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
@@ -1413,8 +1629,8 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
             <p style="margin: 0; font-weight: bold; color: #9d174d;">Meeting Details:</p>
             <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #9d174d; line-height: 1.6;">
               <li><strong>Mentor:</strong> ${bookingData.mentor}</li>
-              <li><strong>Date:</strong> ${bookingData.date}</li>
-              <li><strong>Time:</strong> ${bookingData.time}</li>
+              <li><strong>Date:</strong> ${studentTime.date}</li>
+              <li><strong>Time:</strong> ${studentTime.time} (${tz})</li>
               <li><strong>Duration:</strong> ${bookingData.duration} minutes</li>
               <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #be185d; font-weight: bold;">Join Google Meet</a></li>
             </ul>
@@ -1430,7 +1646,7 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
         await sendEmail({
           to: bookingData.email,
           subject: `Confirmed: Mentorship Session with ${bookingData.mentor}`,
-          text: `Hi there,\n\nYour mentorship session with ${bookingData.mentor} is confirmed!\n\nDate: ${bookingData.date}\nTime: ${bookingData.time}\nDuration: ${bookingData.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
+          text: `Hi there,\n\nYour mentorship session with ${bookingData.mentor} is confirmed!\n\nDate: ${studentTime.date}\nTime: ${studentTime.time} (${tz})\nDuration: ${bookingData.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
           html: studentHtml,
           attachments: [inviteAttachment]
         });
@@ -1447,8 +1663,8 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
             <p style="margin: 0; font-weight: bold; color: #4338ca;">Booking Details:</p>
             <ul style="margin: 10px 0 0 0; padding-left: 20px; color: #4338ca; line-height: 1.6;">
               <li><strong>Student Email:</strong> ${bookingData.email}</li>
-              <li><strong>Date:</strong> ${bookingData.date}</li>
-              <li><strong>Time:</strong> ${bookingData.time}</li>
+              <li><strong>Date:</strong> ${mentorTime.date}</li>
+              <li><strong>Time:</strong> ${mentorTime.time} (${mentorTimezone})</li>
               <li><strong>Duration:</strong> ${bookingData.duration} minutes</li>
               <li><strong>Google Meet Link:</strong> <a href="${meetLink}" style="color: #4338ca; font-weight: bold;">Join Google Meet</a></li>
             </ul>
@@ -1464,7 +1680,7 @@ app.get('/api/verify-checkout-session/:sessionId', async (req, res) => {
         await sendEmail({
           to: mentorEmail,
           subject: `New Booking: Mentorship Session with Student`,
-          text: `Hello ${bookingData.mentor},\n\nYou have a new booking from a student (${bookingData.email})!\n\nDate: ${bookingData.date}\nTime: ${bookingData.time}\nDuration: ${bookingData.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
+          text: `Hello ${bookingData.mentor},\n\nYou have a new booking from a student (${bookingData.email})!\n\nDate: ${mentorTime.date}\nTime: ${mentorTime.time} (${mentorTimezone})\nDuration: ${bookingData.duration} minutes\nGoogle Meet: ${meetLink}\n\nWe've attached a calendar invite to this email. Please open it to save the session.`,
           html: mentorHtml,
           attachments: [inviteAttachment]
         });
@@ -1668,17 +1884,13 @@ app.put('/api/user/bookings/:id/reschedule-request', userAuth, async (req, res) 
       return res.status(403).json({ success: false, message: 'Unauthorized access to this booking.' });
     }
 
-    // Availability validation check
-    const toMinutes = (timeStr) => {
-      const [h, m] = timeStr.split(':').map(Number);
-      return h * 60 + m;
-    };
+    // Availability validation check in UTC
+    const tz = booking.data.student_tz || 'Asia/Kolkata';
+    const utcStart = getUtcTime(date, time, tz);
+    const durationMin = parseInt(booking.data.duration, 10) || 30;
+    const utcEnd = new Date(utcStart.getTime() + durationMin * 60 * 1000);
 
-    const requestedStart = toMinutes(time);
-    const duration = parseInt(booking.data.duration) || 30;
-    const requestedEnd = requestedStart + duration;
-
-    // Check overlaps on that date (excluding this booking itself)
+    // Check overlaps on that UTC range (excluding this booking itself)
     const otherBookings = await Submission.find({
       _id: { $ne: booking._id },
       form_type: 'mentorship',
@@ -1686,31 +1898,52 @@ app.put('/api/user/bookings/:id/reschedule-request', userAuth, async (req, res) 
       $or: [
         { 'data.mentor_id': booking.data.mentor_id },
         { 'data.mentor_id': String(booking.data.mentor_id) }
-      ],
-      'data.date': date
+      ]
     });
 
+    const getBookingUtcRange = (b) => {
+      if (b.data.utc_start) {
+        return {
+          start: new Date(b.data.utc_start),
+          end: new Date(b.data.utc_end)
+        };
+      }
+      const start = new Date(`${b.data.date}T${b.data.time}:00Z`);
+      const duration = parseInt(b.data.duration, 10) || 30;
+      return {
+        start,
+        end: new Date(start.getTime() + duration * 60 * 1000)
+      };
+    };
+
     const hasOverlap = otherBookings.some(b => {
-      const startMins = toMinutes(b.data.time);
-      const dur = parseInt(b.data.duration) || 30;
-      const endMins = startMins + dur;
-      return (requestedStart >= startMins && requestedStart < endMins) ||
-        (requestedEnd > startMins && requestedEnd <= endMins) ||
-        (requestedStart <= startMins && requestedEnd >= endMins);
+      const bRange = getBookingUtcRange(b);
+      return (utcStart < bRange.end && utcEnd > bRange.start);
     });
 
     if (hasOverlap) {
       return res.status(400).json({ success: false, message: 'The requested time slot overlaps with another booking. Please select another slot.' });
     }
 
-    // Check if slot falls in static busy blocks
-    let isStaticBusy = false;
+    // Check if slot falls in mentor's local busy blocks
+    let mentorTz = 'America/New_York';
+    let busySlots = ["11:00", "15:00"];
     if (mongoose.Types.ObjectId.isValid(booking.data.mentor_id)) {
       const mentor = await Mentor.findById(booking.data.mentor_id);
-      if (mentor && mentor.busy && mentor.busy.includes(time)) {
-        isStaticBusy = true;
+      if (mentor) {
+        mentorTz = mentor.timezone || 'America/New_York';
+        busySlots = mentor.busy || [];
+      } else {
+        const ep = await Episode.findById(booking.data.mentor_id);
+        if (ep) {
+          mentorTz = ep.mentor_timezone || 'America/New_York';
+          busySlots = ep.busy || [];
+        }
       }
     }
+
+    const mentorTimeParts = getLocalTimeParts(utcStart, mentorTz);
+    const isStaticBusy = busySlots.includes(mentorTimeParts.time);
 
     if (isStaticBusy) {
       return res.status(400).json({ success: false, message: 'The mentor is unavailable during this time slot. Please select another slot.' });
@@ -1721,6 +1954,8 @@ app.put('/api/user/bookings/:id/reschedule-request', userAuth, async (req, res) 
       date,
       time,
       status: 'pending',
+      utc_start: utcStart.toISOString(),
+      utc_end: utcEnd.toISOString(),
       requested_at: new Date().toISOString()
     };
     booking.markModified('data');
@@ -1883,6 +2118,7 @@ app.post('/api/admin/episodes', auth, async (req, res) => {
   try {
     const ep = new Episode(req.body);
     await ep.save();
+    mentorsCache = null; // Invalidate cache
     res.json({ success: true, data: ep });
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -1893,6 +2129,7 @@ app.put('/api/admin/episodes/:id', auth, async (req, res) => {
   try {
     const ep = await Episode.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!ep) return res.status(404).json({ message: 'Episode not found' });
+    mentorsCache = null; // Invalidate cache
     res.json({ success: true, data: ep });
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -1903,6 +2140,7 @@ app.delete('/api/admin/episodes/:id', auth, async (req, res) => {
   try {
     const ep = await Episode.findByIdAndDelete(req.params.id);
     if (!ep) return res.status(404).json({ message: 'Episode not found' });
+    mentorsCache = null; // Invalidate cache
     res.json({ success: true, message: 'Episode deleted' });
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -1927,6 +2165,7 @@ app.post('/api/admin/mentors', auth, async (req, res) => {
   try {
     const m = new Mentor(req.body);
     await m.save();
+    mentorsCache = null; // Invalidate cache
     res.json({ success: true, data: m });
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -1937,6 +2176,7 @@ app.put('/api/admin/mentors/:id', auth, async (req, res) => {
   try {
     const m = await Mentor.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!m) return res.status(404).json({ message: 'Mentor not found' });
+    mentorsCache = null; // Invalidate cache
     res.json({ success: true, data: m });
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -1947,6 +2187,7 @@ app.delete('/api/admin/mentors/:id', auth, async (req, res) => {
   try {
     const m = await Mentor.findByIdAndDelete(req.params.id);
     if (!m) return res.status(404).json({ message: 'Mentor not found' });
+    mentorsCache = null; // Invalidate cache
     res.json({ success: true, message: 'Mentor deleted' });
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -1990,6 +2231,7 @@ app.put('/api/admin/mentor-applications/:id/accept', auth, async (req, res) => {
       bio: appRecord.bio,
       linkedin: appRecord.linkedin,
       expertise_areas: appRecord.expertise,
+      timezone: appRecord.timezone || 'America/New_York',
       status: 'published'
     });
     await newMentor.save();
@@ -2330,16 +2572,75 @@ app.get('/api/admin/submissions', auth, async (req, res) => {
 app.get('/api/admin/analytics/mentorship', auth, async (req, res) => {
   try {
     const submissions = await Submission.find({ form_type: 'mentorship' });
+    const dedicatedMentors = await Mentor.find({}, 'name slots busy availability status');
+    const episodeMentors = await Episode.find({ is_mentor: true }, 'guest_name slots busy mentor_avail status');
+    
+    const mentorsAvailability = [];
+    dedicatedMentors.forEach(m => {
+      mentorsAvailability.push({
+        name: m.name,
+        source: 'dedicated',
+        slots: m.slots || [],
+        busy: m.busy || [],
+        availability: m.availability || 'Available',
+        status: m.status
+      });
+    });
+    episodeMentors.forEach(e => {
+      mentorsAvailability.push({
+        name: e.guest_name,
+        source: 'episode',
+        slots: e.slots || [],
+        busy: e.busy || [],
+        availability: e.mentor_avail || 'Available',
+        status: e.status
+      });
+    });
+
+    const today = new Date().toISOString().split('T')[0];
     
     let totalSessions = submissions.length;
     let totalEarnings = 0;
     const mentorMap = {};
+
+    const allSessions = submissions.map(sub => {
+      const data = sub.data || {};
+      const dateStr = data.date || '';
+      const isUpc = dateStr && dateStr >= today;
+      
+      let calculatedStatus = 'completed';
+      if (sub.status === 'spam') {
+        calculatedStatus = 'cancelled';
+      } else if (data.reschedule_request && data.reschedule_request.status === 'pending') {
+        calculatedStatus = 'reschedule_requested';
+      } else if (isUpc) {
+        calculatedStatus = 'upcoming';
+      }
+      
+      return {
+        id: sub._id,
+        student_name: data.name || data.email || 'Unknown Student',
+        student_email: data.email || 'N/A',
+        mentor_name: data.mentor || 'Unknown Mentor',
+        mentor_id: data.mentor_id || 'unknown',
+        date: dateStr,
+        time: data.time || '—',
+        duration: data.duration || '30',
+        amount: data.amount || 'Free',
+        submission_status: sub.status,
+        calculated_status: calculatedStatus,
+        reschedule_request: data.reschedule_request || null,
+        created_at: sub.created_at
+      };
+    });
 
     submissions.forEach(sub => {
       const data = sub.data || {};
       const mentorName = data.mentor || 'Unknown Mentor';
       const mentorId = data.mentor_id || 'unknown';
       const amountStr = data.amount || '';
+      const dateStr = data.date || '';
+      const isUpc = dateStr && dateStr >= today;
       
       let amount = 0;
       if (amountStr && !amountStr.toLowerCase().includes('free')) {
@@ -2356,12 +2657,26 @@ app.get('/api/admin/analytics/mentorship', auth, async (req, res) => {
           mentor_id: mentorId,
           mentor_name: mentorName,
           sessions_count: 0,
-          earnings: 0
+          earnings: 0,
+          upcoming_count: 0,
+          completed_count: 0,
+          cancelled_count: 0,
+          reschedule_pending_count: 0
         };
       }
       
       mentorMap[mentorId].sessions_count += 1;
       mentorMap[mentorId].earnings += amount;
+
+      if (sub.status === 'spam') {
+        mentorMap[mentorId].cancelled_count += 1;
+      } else if (data.reschedule_request && data.reschedule_request.status === 'pending') {
+        mentorMap[mentorId].reschedule_pending_count += 1;
+      } else if (isUpc) {
+        mentorMap[mentorId].upcoming_count += 1;
+      } else {
+        mentorMap[mentorId].completed_count += 1;
+      }
     });
 
     const mentorsBreakdown = Object.values(mentorMap).sort((a, b) => b.earnings - a.earnings);
@@ -2370,7 +2685,9 @@ app.get('/api/admin/analytics/mentorship', auth, async (req, res) => {
       success: true,
       totalSessions,
       totalEarnings,
-      mentorsBreakdown
+      mentorsBreakdown,
+      allSessions,
+      mentorsAvailability
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
